@@ -1,0 +1,54 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "fedavg-app"
+version = "1.0.0"
+description = "FedAvg com Flower + PyTorch (GPU), clientes em containers Docker"
+license = "Apache-2.0"
+# As dependências já vêm instaladas na imagem Docker (ver docker/Dockerfile).
+dependencies = [
+    "flwr==1.30.0",
+    "torch>=2.7.0",
+    "torchvision>=0.22.0",
+    "pyarrow>=15",
+    "pillow",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["fedavg_app"]
+
+[tool.flwr.app]
+publisher = "aprendfed"
+
+[tool.flwr.app.components]
+serverapp = "fedavg_app.server_app:app"
+clientapp = "fedavg_app.client_app:app"
+
+# Configuração do experimento. Pode ser sobrescrita na execução, ex.:
+#   ./run.sh -c "num-server-rounds=20 lr=0.05"
+[tool.flwr.app.config]
+num-server-rounds = 10
+model = "cnn"               # "cnn" ou "mobilenet_v3_small"
+pretrained = false          # pesos do ImageNet (só para mobilenet_v3_small)
+image-size = 32             # ampliar a entrada (ex.: 96) ajuda modelos de ImageNet
+fraction-train = 1.0        # fração de clientes sorteados para treinar em cada rodada
+fraction-evaluate = 1.0     # fração de clientes sorteados para avaliar em cada rodada
+min-nodes = 2               # mínimo de clientes conectados para iniciar uma rodada
+local-epochs = 1
+batch-size = 64
+lr = 0.01
+momentum = 0.9
+partitioning = "iid"        # "iid" ou "dirichlet" (não-IID)
+dirichlet-alpha = 0.5       # usado apenas quando partitioning = "dirichlet"
+seed = 42
+# Heterogeneidade de hardware (a velocidade de cada cliente fica no
+# docker-compose.yml, em --node-config compute-speed=...):
+#   "wait"    -> servidor espera todos; clientes lentos só atrasam a rodada
+#   "partial" -> cliente para no prazo e envia o que treinou (peso menor)
+#   "drop"    -> cliente que estoura o prazo é descartado da rodada
+straggler-policy = "wait"
+round-deadline = 0.5        # segundos (tempo emulado); ignorado em "wait"
+data-dir = "/data"
+output-dir = "/outputs"
