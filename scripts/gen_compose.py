@@ -9,7 +9,9 @@ Cada cliente recebe um `partition-id` diferente, de modo que treina sobre um
 pedaço distinto do CIFAR-10. Todos usam a GPU da máquina.
 
 `--speeds` define a velocidade relativa de cada cliente (1.0 = normal,
-0.25 = hardware emulado 4x mais lento). Um único valor vale para todos.
+0.25 = hardware emulado 4x mais lento). Se houver menos valores que clientes,
+a lista é repetida: `--speeds 1.0,1.0,0.25` deixa 1/3 dos clientes lentos
+com 3, 6, 15... clientes.
 """
 
 import argparse
@@ -106,10 +108,9 @@ def main() -> None:
         parser.error("--clients deve ser >= 1")
 
     speeds = [float(v) for v in args.speeds.split(",")]
-    if len(speeds) == 1:
-        speeds *= args.clients
-    if len(speeds) != args.clients:
-        parser.error("--speeds deve ter 1 valor ou um valor por cliente")
+    if len(speeds) > args.clients:
+        parser.error("--speeds tem mais valores do que clientes")
+    speeds = [speeds[i % len(speeds)] for i in range(args.clients)]
     if any(v <= 0 for v in speeds):
         parser.error("--speeds deve conter apenas valores > 0")
 

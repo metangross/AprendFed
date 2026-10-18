@@ -71,14 +71,37 @@ docker compose start supernode-2          # reconectar
 nvidia-smi                                # ver os processos de cada container na GPU
 ```
 
-Para mudar a quantidade de clientes, gere o compose novamente e recrie os
-containers (`docker compose up -d --remove-orphans`).
+### Número de clientes
+
+O número de clientes é um parâmetro. O jeito mais rápido é usar `-n` no
+`run.sh`: ele gera o compose de novo, sobe/remove os containers e roda o
+experimento:
+
+```bash
+./run.sh -n 5
+./run.sh -n 10 -c "num-server-rounds=20"
+./run.sh -n 15 -s 1.0,1.0,0.25        # 1/3 dos clientes 4x mais lentos
+```
+
+O mesmo resultado em passos separados:
+
+```bash
+python3 scripts/gen_compose.py --clients 10
+docker compose up -d --remove-orphans
+./run.sh
+```
+
+O `run.sh` conta os `supernode-*` do compose e passa `min-nodes=<N>`, então a
+1ª rodada só começa quando todos os clientes estão conectados. Se você vai
+derrubar clientes durante o experimento, diminua o valor:
+`./run.sh -c "min-nodes=2"`.
 
 Parâmetros úteis do FedAvg em `pyproject.toml`:
 
 - `fraction-train` / `fraction-evaluate`: fração dos clientes conectados
   sorteada a cada rodada (ex.: `0.5` = metade).
-- `min-nodes`: quantos clientes precisam estar conectados para a rodada começar.
+- `min-nodes`: quantos clientes precisam estar conectados para a rodada começar
+  (o `run.sh` usa o número de clientes do compose).
   Se você derrubar clientes e ficar abaixo desse valor, o servidor espera.
 
 ## Modelos
