@@ -7,6 +7,11 @@ ENV PYTHONUNBUFFERED=1 \
     FLWR_HOME=/flwr_home \
     TORCH_HOME=/data/torch
 
+# tzdata: sem ele a variável TZ do compose é ignorada e o relógio fica em UTC.
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends tzdata \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN pip install "flwr==1.30.0" "pyarrow>=15"
 
 # Conexão do CLI `flwr` com o SuperLink dentro da rede do compose.

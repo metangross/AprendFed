@@ -6,6 +6,7 @@ from pathlib import Path
 
 from flwr.app import (
     ArrayRecord,
+    ConfigRecord,
     Context,
     Error,
     Message,
@@ -14,7 +15,7 @@ from flwr.app import (
 )
 from flwr.clientapp import ClientApp
 
-from fedavg_app.task import get_device, get_model, load_partition, test
+from fedavg_app.task import get_device, get_model, load_partition, set_seed, test
 from fedavg_app.task import train as train_fn
 
 app = ClientApp()
@@ -25,6 +26,12 @@ DEADLINE_EXCEEDED = 100  # código de erro enviado ao servidor na política "dro
 def _setup(msg: Message, context: Context):
     """Instancia o modelo com os pesos globais e carrega a partição local."""
     rc, nc = context.run_config, context.node_config
+    # Embaralhamento dos batches: reproduzível, mas distinto por rodada e cliente.
+    set_seed(
+        int(rc["seed"]),
+        int(msg.content["config"]["server-round"]),
+        int(nc["partition-id"]),
+    )
     # Os pesos vêm do servidor; aqui só a arquitetura importa (pretrained=False).
     net = get_model(str(rc["model"]), image_size=int(rc["image-size"]))
     net.load_state_dict(msg.content["arrays"].to_torch_state_dict())
@@ -40,12 +47,21 @@ def _setup(msg: Message, context: Context):
     return net, trainloader, valloader
 
 
+def _info(context: Context) -> ConfigRecord:
+    """Identifica a partição para o servidor agregar as respostas em ordem fixa."""
+    return ConfigRecord({"partition-id": int(context.node_config["partition-id"])})
+
+
 def _log_metrics(msg: Message, context: Context, phase: str, metrics: dict) -> None:
-    """Acrescenta uma linha em outputs/run-<id>/clients/partition-<p>.jsonl."""
+    """Acrescenta uma linha em outputs/run-<id>-<data>/clients/partition-<p>.jsonl."""
     pid = int(context.node_config["partition-id"])
+    cfg = msg.content["config"]
+    run_date = str(cfg["run-date"])
     record = {
         "run_id": context.run_id,
-        "round": int(msg.content["config"]["server-round"]),
+        "run_date": run_date,
+        "run_time": str(cfg["run-time"]),
+        "round": int(cfg["server-round"]),
         "phase": phase,
         "partition_id": pid,
         "node_id": context.node_id,
@@ -53,7 +69,8 @@ def _log_metrics(msg: Message, context: Context, phase: str, metrics: dict) -> N
         "timestamp": time.time(),
         **metrics,
     }
-    out = Path(str(context.run_config["output-dir"])) / f"run-{context.run_id}" / "clients"
+    out = Path(str(context.run_config["output-dir"])) / f"run-{context.run_id}-{run_date}"
+    out = out / "clients"
     out.mkdir(parents=True, exist_ok=True)
     with open(out / f"partition-{pid}.jsonl", "a") as f:
         f.write(json.dumps(record) + "\n")
@@ -97,7 +114,8 @@ def train(msg: Message, context: Context) -> Message:
     metrics = MetricRecord(
         {"train_loss": stats["train_loss"], "num-examples": stats["examples_processed"]}
     )
-    content = RecordDict({"arrays": ArrayRecord(net.state_dict()), "metrics": metrics})
+    arrays = ArrayRecord(net.state_dict())
+    content = RecordDict({"arrays": arrays, "metrics": metrics, "info": _info(context)})
     return Message(content=content, reply_to=msg)
 
 
@@ -115,4 +133,5 @@ def evaluate(msg: Message, context: Context) -> Message:
     metrics = MetricRecord(
         {"eval_loss": loss, "eval_acc": acc, "num-examples": len(valloader.dataset)}
     )
-    return Message(content=RecordDict({"metrics": metrics}), reply_to=msg)
+    content = RecordDict({"metrics": metrics, "info": _info(context)})
+    return Message(content=content, reply_to=msg)

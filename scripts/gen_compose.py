@@ -33,6 +33,8 @@ x-gpu: &gpu
 x-base: &base
   image: aprendfed:latest
   networks: [flower]
+  environment:
+    TZ: America/Sao_Paulo   # data/hora usadas no nome da pasta e nos JSONs da run
   volumes:
     - data:/data
     - ./outputs:/outputs

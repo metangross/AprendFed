@@ -1,5 +1,6 @@
 """Modelo, dados (CIFAR-10 particionado) e laços de treino/avaliação."""
 
+import random
 import time
 from functools import lru_cache
 from pathlib import Path
@@ -12,6 +13,20 @@ from torch.utils.data import DataLoader, TensorDataset
 
 CIFAR_MEAN = torch.tensor([0.4914, 0.4822, 0.4465]).view(1, 3, 1, 1)
 CIFAR_STD = torch.tensor([0.2470, 0.2435, 0.2616]).view(1, 3, 1, 1)
+
+
+def set_seed(*keys: int) -> None:
+    """Fixa as RNGs do Python, NumPy e PyTorch (CPU e GPU) a partir de `keys`.
+
+    Os clientes passam (seed, rodada, partição): cada um embaralha seus batches
+    de um jeito diferente a cada rodada, mas de forma reproduzível entre runs.
+    """
+    s = int(np.random.SeedSequence(list(keys)).generate_state(1)[0])
+    random.seed(s)
+    np.random.seed(s)
+    torch.manual_seed(s)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 
 def get_device() -> torch.device:

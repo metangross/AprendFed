@@ -53,7 +53,7 @@ docker compose up -d --build
 ./run.sh -c "partitioning='dirichlet' dirichlet-alpha=0.1"   # não-IID
 
 # 4. resultados (uma pasta por execução)
-ls outputs/run-<run_id>/   # final_model.pt, metrics.json, clients/
+ls outputs/run-<run_id>-<DDMMAAAA>/   # final_model.pt, metrics.json, clients/
 
 # 5. derrubar tudo
 docker compose down
@@ -103,6 +103,13 @@ Parâmetros úteis do FedAvg em `pyproject.toml`:
 - `min-nodes`: quantos clientes precisam estar conectados para a rodada começar
   (o `run.sh` usa o número de clientes do compose).
   Se você derrubar clientes e ficar abaixo desse valor, o servidor espera.
+- `seed`: fixa a divisão dos dados, os pesos iniciais do modelo, o embaralhamento
+  dos batches de cada cliente e o sorteio de clientes. Duas runs com a mesma
+  configuração e a mesma seed dão resultados idênticos; para comparar
+  configurações, mantenha a seed e mude só o que quer testar
+  (ex.: `./run.sh -c "seed=1"`). Exceções: com `straggler-policy` `partial`/`drop`
+  o corte depende de tempo real; e com `fraction-train < 1` o sorteio usa os IDs
+  dos nós, que podem mudar quando os containers são recriados.
 
 ## Modelos
 
@@ -139,8 +146,8 @@ Resultado de 5 rodadas (3 clientes, IID, 1 época local):
 Cada cliente grava um arquivo JSON Lines com uma linha por rodada e fase:
 
 ```
-outputs/run-<run_id>/clients/partition-0.jsonl
-outputs/run-<run_id>/clients/partition-1.jsonl
+outputs/run-<run_id>-<DDMMAAAA>/clients/partition-0.jsonl
+outputs/run-<run_id>-<DDMMAAAA>/clients/partition-1.jsonl
 ...
 ```
 
