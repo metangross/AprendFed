@@ -177,6 +177,33 @@ df = pd.concat(pd.read_json(f, lines=True) for f in glob.glob("outputs/run-*/cli
 O `metrics.json` do servidor guarda as médias agregadas por rodada e a
 configuração usada na execução.
 
+### Gráficos de uma run
+
+```bash
+python3 scripts/plot_run.py 14452694670766510663   # id completo ou só o começo dele
+python3 scripts/plot_run.py                        # a run mais recente
+python3 scripts/plot_run.py --all                  # todas as runs de outputs/
+python3 scripts/plot_run.py 1445 --format pdf      # PDF ou SVG para o texto
+```
+
+Roda no host (precisa de `matplotlib`) e cria uma pasta por run, com um arquivo
+por gráfico:
+
+```
+graficos/run-<id>-<data>/
+├── acuracia.png           teste do modelo global e média da validação dos clientes
+├── participacao.png       clientes que contribuíram para a agregação em cada rodada
+├── bateria_clientes.png   todos os clientes lado a lado, na mesma escala
+├── bateria/cliente-NN.png um gráfico por cliente (mesma escala do painel geral)
+└── resumo.csv             por cliente: amostras, rodadas em que contribuiu,
+                           bateria inicial/final, rodada em que acabou e energia
+                           gasta (total, cálculo e rede)
+```
+
+Os gráficos de bateria só existem em runs com `energy=true`; sem bateria
+inicial, mostram a energia acumulada. Com um id, a tabela do `resumo.csv`
+também é impressa no terminal.
+
 ## Clientes heterogêneos (hardware lento)
 
 Cada cliente tem uma velocidade relativa `compute-speed` (1.0 = normal,

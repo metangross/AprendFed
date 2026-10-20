@@ -2,5 +2,6 @@ __pycache__/
 *.pyc
 *.fab
 outputs/
+graficos/
 data/
 .venv/
