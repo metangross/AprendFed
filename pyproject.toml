@@ -63,5 +63,17 @@ energy-baseline = "idle"
 #   "drop"    -> treina até a bateria acabar e é descartado (FedAvg sem controle)
 #   "partial" -> para a tempo de enviar o modelo e envia o que treinou
 battery-empty-policy = "drop"
+# Fração dos dados locais treinada em cada rodada, conforme a bateria:
+#   "none"      -> todos os dados (FedAvg)
+#   "leanfed"   -> LeanFed original: η = orçamento / A (ignora rede e custo fixo)
+#   "leanfed-c" -> LeanFed corrigido: η = (orçamento − C − D) / A
+# orçamento = bateria / participações restantes; com η = 0 o cliente pula a rodada.
+energy-policy = "none"
+# C reservado pelo leanfed-c, pela vazão da faixa do cliente:
+#   "mean"    -> custo médio
+#   "0.75"... -> percentil do custo (mais conservador quanto maior)
+comm-estimate = "mean"
+# Refaz η depois do download, com o custo real dele e só o upload estimado.
+eta-after-download = false
 data-dir = "/data"
 output-dir = "/outputs"

@@ -15,8 +15,10 @@ from flwr.app import (
     RecordDict,
 )
 from flwr.clientapp import ClientApp
+from torch import randperm
+from torch.utils.data import DataLoader, Subset
 
-from fedavg_app.energy import round_energy
+from fedavg_app.energy import data_fraction, expected_comm, round_energy
 from fedavg_app.task import get_device, get_model, load_partition, set_seed, test
 from fedavg_app.task import train as train_fn
 
@@ -24,6 +26,7 @@ app = ClientApp()
 
 DEADLINE_EXCEEDED = 100  # código de erro enviado ao servidor na política "drop"
 BATTERY_DEPLETED = 101  # bateria acabou, ou não sobra o bastante para treinar
+ENERGY_SKIPPED = 102  # a política de energia decidiu pular a rodada para economizar
 
 
 def _battery(context: Context) -> float | None:
@@ -116,20 +119,47 @@ def train(msg: Message, context: Context) -> Message:
 
     device = get_device()
     net, trainloader, _ = _setup(msg, context)
+    num_examples = len(trainloader.dataset)
+    server_round = int(msg.content["config"]["server-round"])
 
     # Energia da rodada: custo fixo + download antes do treino, upload no fim.
     cost, energy_log, budget = None, {}, math.inf
     if use_energy:
         num_params = sum(t.numel() for t in net.parameters())
-        cost = round_energy(rc, nc, num_params, int(msg.content["config"]["server-round"]))
+        cost = round_energy(rc, nc, num_params, server_round)
         energy_log = {
             "energy_baseline": str(rc["energy-baseline"]),
+            "energy_policy": str(rc["energy-policy"]),
             "power_factor": float(nc.get("power-factor", 1.0)),
             "net_mbps": float(nc.get("net-mbps", 25.0)),
             "bw_down_mbps": cost.bw_down_mbps,
             "bw_up_mbps": cost.bw_up_mbps,
             "battery_before": battery,
         }
+
+    k = num_examples  # amostras treinadas na rodada
+    lean = battery is not None and rc["energy-policy"] != "none"
+    if lean:
+        # Orçamento da rodada = bateria / participações restantes esperadas. Se o
+        # cliente pula uma rodada, o que não gastou aumenta o orçamento das próximas.
+        left = max(1.0, float(rc["fraction-train"]) * (int(rc["num-server-rounds"])
+                                                       - server_round + 1))
+        round_budget = battery / left
+        compute = cost.per_sample * num_examples * int(rc["local-epochs"])
+        comm = expected_comm(nc, num_params, rc["comm-estimate"])
+        eta = data_fraction(str(rc["energy-policy"]), round_budget, compute, comm,
+                            cost.fixed)
+        k = math.floor(eta * num_examples)
+        energy_log |= {"round_budget_j": round_budget, "comm_reserved_j": comm,
+                       "data_fraction": k / num_examples}
+        if k == 0:
+            # Decide ao receber o convite da rodada, antes de baixar o modelo: não gasta.
+            _log_metrics(msg, context, "train", {"status": "skipped", **energy_log,
+                                                 "num_examples": num_examples,
+                                                 "battery_after": battery, "energy_j": 0.0})
+            return Message(Error(code=ENERGY_SKIPPED,
+                                 reason=f"pulou a rodada (orçamento {round_budget:.1f} J)"),
+                           reply_to=msg)
     pre = cost.fixed + cost.download if cost else 0.0
     if battery is not None:
         if battery < pre:
@@ -137,6 +167,31 @@ def train(msg: Message, context: Context) -> Message:
             _log_metrics(msg, context, "train", {"status": "depleted", **energy_log,
                                                  "battery_after": 0.0, "energy_j": battery})
             return _no_battery(msg, "bateria acabou ao baixar o modelo")
+    if lean and rc["eta-after-download"]:
+        # Já baixou: refaz η com o download real e só o upload estimado.
+        comm = cost.download + expected_comm(nc, num_params, rc["comm-estimate"]) / 2
+        eta = data_fraction(str(rc["energy-policy"]), round_budget, compute, comm,
+                            cost.fixed)
+        k = math.floor(eta * num_examples)
+        energy_log |= {"comm_reserved_j": comm, "data_fraction": k / num_examples}
+        if k == 0:
+            # O download saiu caro: desiste antes de treinar e não paga o upload.
+            _set_battery(context, battery - pre)
+            _log_metrics(msg, context, "train", {"status": "skipped", **energy_log,
+                                                 "num_examples": num_examples,
+                                                 "energy_comm_j": cost.download,
+                                                 "energy_fixed_j": cost.fixed,
+                                                 "battery_after": battery - pre,
+                                                 "energy_j": pre})
+            return Message(Error(code=ENERGY_SKIPPED,
+                                 reason=f"pulou a rodada após o download ({pre:.1f} J)"),
+                           reply_to=msg)
+    if k < num_examples:
+        # Subconjunto sorteado a cada rodada (as RNGs foram fixadas em _setup).
+        idx = randperm(num_examples)[:k].tolist()
+        trainloader = DataLoader(Subset(trainloader.dataset, idx),
+                                 batch_size=trainloader.batch_size, shuffle=True)
+    if battery is not None:
         # "partial" reserva o upload: para de treinar a tempo de enviar o modelo.
         # "drop" treina até a bateria acabar, como um FedAvg sem controle de energia.
         reserve = cost.upload if rc["battery-empty-policy"] == "partial" else 0.0
@@ -187,7 +242,7 @@ def train(msg: Message, context: Context) -> Message:
         msg,
         context,
         "train",
-        {"status": status, "num_examples": len(trainloader.dataset), **stats, **energy_log},
+        {"status": status, "num_examples": num_examples, **stats, **energy_log},
     )
 
     if status == "dropped":

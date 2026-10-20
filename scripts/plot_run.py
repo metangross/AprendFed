@@ -13,6 +13,7 @@ graficos/run-<id>-<data>/ (a pasta outputs/ pertence ao root dos containers):
     acuracia.png          acurácia do modelo global no teste e média da validação
                           dos clientes, por rodada
     participacao.png      clientes que contribuíram para a agregação em cada rodada
+    acuracia_energia.png  acurácia do modelo global × energia gasta pela federação
     bateria_clientes.png  todos os clientes lado a lado, na mesma escala
     bateria/cliente-NN.png  um gráfico por cliente
     resumo.csv            tabela por cliente (também impressa no terminal)
@@ -43,7 +44,7 @@ INK_2 = "#52514e"
 MUTED = "#898781"
 GRID = "#e1e0d9"
 AXIS = "#c3c2b7"
-SERIES = ("#2a78d6", "#eb6834")  # categóricas 1 e 2
+SERIES = ("#2a78d6", "#eb6834", "#1baf7a", "#eda100")  # categóricas 1 a 4, nesta ordem
 CRITICAL = "#d03b3b"  # status: bateria acabou
 
 CONTRIBUTED = ("ok", "partial")
@@ -142,6 +143,31 @@ class Run:
             if self.has_energy else {}
         )
 
+    def test_acc(self) -> dict[int, float]:
+        return {int(k): v["test_acc"] for k, v in self.metrics["evaluate_server"].items()}
+
+    def energy_by_round(self) -> dict[int, float]:
+        """Energia acumulada de todos os clientes até o fim de cada rodada (J)."""
+        per_round = {r: 0.0 for r in range(self.rounds + 1)}
+        for rows in self.clients.values():
+            for r in rows:
+                if r["round"] in per_round:
+                    per_round[r["round"]] += r.get("energy_j") or 0.0
+        total, out = 0.0, {}
+        for r in sorted(per_round):
+            total += per_round[r]
+            out[r] = total
+        return out
+
+    def contributed(self) -> dict[int, int]:
+        """Clientes que contribuíram para a agregação em cada rodada."""
+        counts = {r: 0 for r in range(1, self.rounds + 1)}
+        for rows in self.clients.values():
+            for r in rows:
+                if r["status"] in CONTRIBUTED and r["round"] in counts:
+                    counts[r["round"]] += 1
+        return counts
+
     def subtitle(self) -> str:
         rc, m = self.rc, self.metrics
         # Runs anteriores à data no nome da pasta não têm run_date/run_time.
@@ -155,6 +181,7 @@ class Run:
             baseline = self.energy.get("baseline", rc.get("energy-baseline"))
             sub += f" · base {baseline}" if baseline else ""
             sub += f" · bateria vazia={rc['battery-empty-policy']}"
+            sub += f" · política={rc.get('energy-policy', 'none')}"
         return sub
 
     def died(self, pid: int) -> int | None:
@@ -186,7 +213,7 @@ def plot_accuracy(run: Run, path: Path) -> None:
     ax = fig.add_subplot(gs[0])
     style_axes(ax)
     m = run.metrics
-    srv = {int(k): v["test_acc"] for k, v in m["evaluate_server"].items()}
+    srv = run.test_acc()
     cli = {int(k): v["eval_acc"] for k, v in m.get("evaluate_clients", {}).items()
            if "eval_acc" in v}
     for label, data, color in [("teste (modelo global)", srv, SERIES[0]),
@@ -219,11 +246,7 @@ def plot_participation(run: Run, path: Path) -> None:
                          [run.subtitle()])
     ax = fig.add_subplot(gs[0])
     style_axes(ax)
-    counts = {r: 0 for r in range(1, run.rounds + 1)}
-    for rows in run.clients.values():
-        for r in rows:
-            if r["status"] in CONTRIBUTED and r["round"] in counts:
-                counts[r["round"]] += 1
+    counts = run.contributed()
     # Largura da coluna em rodadas, limitada a 24 px.
     px_per_round = ax.get_position().width * fig.get_figwidth() * DPI / (run.rounds + 0.6)
     ax.bar(list(counts), list(counts.values()), width=min(0.6, 24 / px_per_round),
@@ -233,6 +256,28 @@ def plot_participation(run: Run, path: Path) -> None:
     ax.set_yticks(sorted({0, n // 2, n}))
     ax.xaxis.set_major_locator(MaxNLocator(integer=True))
     ax.set_xlabel("rodada", fontsize=8, color=MUTED, labelpad=2)
+    save(fig, path)
+
+
+def plot_accuracy_energy(run: Run, path: Path) -> None:
+    fig, gs = new_figure(10, 3.6, "Acurácia × energia gasta pela federação", [run.subtitle()])
+    ax = fig.add_subplot(gs[0])
+    style_axes(ax)
+    acc, energy = run.test_acc(), run.energy_by_round()
+    xs = [energy[r] / 1000 for r in sorted(acc) if r in energy]
+    ys = [acc[r] for r in sorted(acc) if r in energy]
+    ax.plot(xs, ys, color=SERIES[0], linewidth=2, solid_capstyle="round",
+            solid_joinstyle="round", zorder=3)
+    ax.plot(xs[-1], ys[-1], "o", color=SERIES[0], markersize=8, markeredgecolor=SURFACE,
+            markeredgewidth=2, zorder=4)
+    ax.annotate(f"{br(100 * ys[-1])}% com {br(xs[-1])} kJ", (xs[-1], ys[-1]),
+                xytext=(-8, 10), textcoords="offset points", ha="right", fontsize=9,
+                color=INK, weight="bold")
+    ax.set_xlim(0, max(xs) * 1.03 or 1)
+    ax.set_ylim(0, 1)
+    ax.yaxis.set_major_formatter(PercentFormatter(1.0, decimals=0))
+    ax.set_xlabel("energia acumulada de todos os clientes (kJ)", fontsize=8, color=MUTED,
+                  labelpad=2)
     save(fig, path)
 
 
@@ -357,6 +402,7 @@ def plot_run(run_dir: Path, base: Path, ext: str, cols: int) -> Path:
     plot_accuracy(run, out / f"acuracia.{ext}")
     plot_participation(run, out / f"participacao.{ext}")
     if run.has_energy:
+        plot_accuracy_energy(run, out / f"acuracia_energia.{ext}")
         plot_battery_grid(run, out / f"bateria_clientes.{ext}", cols)
         for pid in run.clients:
             plot_battery_client(run, pid, out / "bateria" / f"cliente-{pid:02d}.{ext}")

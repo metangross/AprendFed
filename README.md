@@ -193,6 +193,7 @@ por gráfico:
 graficos/run-<id>-<data>/
 ├── acuracia.png           teste do modelo global e média da validação dos clientes
 ├── participacao.png       clientes que contribuíram para a agregação em cada rodada
+├── acuracia_energia.png   acurácia × energia acumulada de todos os clientes
 ├── bateria_clientes.png   todos os clientes lado a lado, na mesma escala
 ├── bateria/cliente-NN.png um gráfico por cliente (mesma escala do painel geral)
 └── resumo.csv             por cliente: amostras, rodadas em que contribuiu,
@@ -200,9 +201,21 @@ graficos/run-<id>-<data>/
                            gasta (total, cálculo e rede)
 ```
 
-Os gráficos de bateria só existem em runs com `energy=true`; sem bateria
-inicial, mostram a energia acumulada. Com um id, a tabela do `resumo.csv`
-também é impressa no terminal.
+Os gráficos de energia e bateria só existem em runs com `energy=true`; sem
+bateria inicial, os de bateria mostram a energia acumulada. Com um id, a tabela
+do `resumo.csv` também é impressa no terminal.
+
+### Comparar runs
+
+```bash
+python3 scripts/compare_runs.py 1977 5123 6789 --labels "FedAvg,LeanFed,LeanFed-c"
+```
+
+Sobrepõe de 2 a 4 runs em `graficos/comparacao-<ids>/`: acurácia por rodada,
+acurácia × energia, clientes que contribuíram por rodada (colunas agrupadas) e
+um `resumo.csv` com acurácia final e máxima, energia total, participações e
+clientes com bateria no fim. Avisa se as runs diferem em algo além do que se
+quer comparar (modelo, dados, seed, rodadas, número de clientes...).
 
 ## Clientes heterogêneos (hardware lento)
 
@@ -292,6 +305,39 @@ As escolhas ficam registradas na seção `energy` do `metrics.json`: base usada
 e sua potência, perfil (arquivo, GPU, data), tempo e energia por amostra de
 referência, custo fixo e `battery-empty-policy`. Cada linha de treino dos
 `.jsonl` também traz `energy_baseline`.
+
+**4. Política de energia** (`energy-policy`): quanto dos dados locais o
+cliente treina em cada rodada. O orçamento da rodada é a bateria atual dividida
+pelas participações restantes esperadas (`fraction-train` × rodadas que faltam).
+
+| `energy-policy` | Fração η dos dados | Comportamento |
+|---|---|---|
+| `none` (padrão) | 1 | FedAvg: treina tudo até a bateria acabar |
+| `leanfed` | orçamento / A | LeanFed original: supõe que o custo é só a computação; com rede cara, os clientes ainda morrem |
+| `leanfed-c` | (orçamento − C − D) / A | LeanFed corrigido: reserva antes a comunicação (pela vazão esperada da faixa) e o custo fixo |
+
+A é a energia de treinar todos os dados locais. O subconjunto é sorteado a cada
+rodada, com seed. Com η = 0, o cliente **pula a rodada** sem gastar nada (decide
+antes de baixar o modelo; responde com o erro `ENERGY_SKIPPED`, 102), e a
+energia guardada aumenta o orçamento das rodadas seguintes. Os `.jsonl`
+registram `round_budget_j`, `comm_reserved_j` e `data_fraction`.
+
+O C reservado pelo `leanfed-c` vem de `comm-estimate`. Com `"mean"` (padrão),
+é o custo médio pela vazão da faixa. Com um percentil (ex.: `'0.75'`), é o custo
+que só é superado em 25% das rodadas. Como a vazão é sorteada em U(1, T), o custo
+tem cauda longa: com T = 25 Mbps, o p50 reserva 13,5 J, a média 23,6 J, o p75
+25,1 J e o p90 51,8 J. Com `eta-after-download=true`, o cliente refaz η depois
+do download, com o custo real dele e só o upload estimado; se η cair a 0, pula a
+rodada sem treinar nem enviar (já pagou o download).
+
+```bash
+./run.sh -c "energy=true energy-policy='leanfed-c' comm-estimate='0.75'"
+./run.sh -c "energy=true energy-policy='leanfed-c' eta-after-download=true"
+```
+
+```bash
+./run.sh -n 15 -b 1500,1000,500 -c "energy=true energy-policy='leanfed-c'"
+```
 
 Cada rodada desconta, nesta ordem, o custo fixo e o download, a computação
 (batch a batch, dentro do `train()`) e o upload. Um cliente sem bateria responde

@@ -16,6 +16,7 @@ processa e as runs continuam reproduzíveis.
 """
 
 import json
+import math
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -24,6 +25,11 @@ import numpy as np
 
 PROFILES_DIR = Path(__file__).resolve().parent / "profiles"
 BATTERY_EMPTY_POLICIES = ("drop", "partial")
+# Como o cliente escolhe a fração de dados da rodada (seção 5.2):
+#   "none"      -> treina com todos os dados (FedAvg)
+#   "leanfed"   -> LeanFed original: o custo só depende dos dados
+#   "leanfed-c" -> LeanFed corrigido: desconta a comunicação e o custo fixo
+ENERGY_POLICIES = ("none", "leanfed", "leanfed-c")
 # Linha de base descontada da energia medida no perfil (profile_energy.py):
 # chave do perfil com P_ref e com a potência da base, e descrição para o output.
 BASELINES = {
@@ -80,6 +86,9 @@ def energy_summary(run_config: dict) -> dict:
         "energy_per_sample_j": width[power_key] * width["time_per_sample_s"],
         "fixed_j": float(rc["energy-fixed-j"]),
         "battery_empty_policy": str(rc["battery-empty-policy"]),
+        "energy_policy": str(rc["energy-policy"]),
+        "comm_estimate": str(rc["comm-estimate"]),
+        "eta_after_download": bool(rc["eta-after-download"]),
     }
 
 
@@ -122,3 +131,57 @@ def round_energy(
         bw_down_mbps=float(bw_down),
         bw_up_mbps=float(bw_up),
     )
+
+
+def comm_quantile(estimate) -> float | None:
+    """Lê o `comm-estimate`: None para "mean", ou o percentil q em (0, 1)."""
+    if str(estimate) == "mean":
+        return None
+    try:
+        q = float(estimate)
+    except ValueError:
+        q = -1.0
+    if not 0 < q < 1:
+        raise ValueError(f'comm-estimate deve ser "mean" ou um percentil em (0, 1), '
+                         f"não {estimate!r}")
+    return q
+
+
+def expected_comm(node_config: dict, num_params: int, estimate="mean") -> float:
+    """Comunicação estimada da rodada (download + upload), em J.
+
+    O cliente decide antes de baixar o modelo, então usa a vazão da sua faixa,
+    não a sorteada. Com vazão ~ U(1, T), por sentido:
+      "mean" -> E[1/vazão] = ln(T) / (T − 1)
+      q      -> percentil q do custo = percentil 1 − q da vazão:
+                1 / (1 + (1 − q)(T − 1)). Com T = 25, passa da média em q ≈ 0,73.
+    """
+    tier = max(float(node_config.get("net-mbps", 25.0)), 1.0)
+    q = comm_quantile(estimate)
+    if tier <= 1:
+        inv_bw = 1.0
+    elif q is None:
+        inv_bw = math.log(tier) / (tier - 1)
+    else:
+        inv_bw = 1 / (1 + (1 - q) * (tier - 1))
+    radio = float(node_config.get("radio-w", 1.8))
+    return 2 * radio * 32 * num_params * inv_bw / 1e6
+
+
+def data_fraction(policy: str, budget: float, compute: float, comm: float,
+                  fixed: float) -> float:
+    """Fração η dos dados locais que cabe no orçamento `budget` da rodada.
+
+    `compute` é a energia de treinar todos os dados locais (A·L). O LeanFed
+    original supõe que o custo é só a computação; o corrigido reserva antes a
+    comunicação e o custo fixo, que não diminuem com η.
+    """
+    if policy == "none":
+        return 1.0
+    if policy == "leanfed":
+        eta = budget / compute
+    elif policy == "leanfed-c":
+        eta = (budget - comm - fixed) / compute
+    else:
+        raise ValueError(f"energy-policy deve ser um de {ENERGY_POLICIES}")
+    return min(1.0, max(0.0, eta))

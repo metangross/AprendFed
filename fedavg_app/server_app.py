@@ -10,7 +10,13 @@ from flwr.app import ArrayRecord, ConfigRecord, Context, Message, MetricRecord
 from flwr.serverapp import Grid, ServerApp
 from flwr.serverapp.strategy import FedAvg
 
-from fedavg_app.energy import BASELINES, BATTERY_EMPTY_POLICIES, energy_summary
+from fedavg_app.energy import (
+    BASELINES,
+    BATTERY_EMPTY_POLICIES,
+    ENERGY_POLICIES,
+    comm_quantile,
+    energy_summary,
+)
 from fedavg_app.task import (
     get_device,
     get_model,
@@ -51,6 +57,11 @@ def main(grid: Grid, context: Context) -> None:
         raise ValueError(f"straggler-policy deve ser um de {STRAGGLER_POLICIES}")
     if rc["battery-empty-policy"] not in BATTERY_EMPTY_POLICIES:
         raise ValueError(f"battery-empty-policy deve ser um de {BATTERY_EMPTY_POLICIES}")
+    if rc["energy-policy"] not in ENERGY_POLICIES:
+        raise ValueError(f"energy-policy deve ser um de {ENERGY_POLICIES}")
+    if rc["energy-policy"] != "none" and not rc["energy"]:
+        raise ValueError("energy-policy exige energy=true")
+    comm_quantile(rc["comm-estimate"])  # falha já aqui se o valor for inválido
     if rc["energy-baseline"] not in BASELINES:
         raise ValueError(f"energy-baseline deve ser um de {tuple(BASELINES)}")
     # Lê o perfil já aqui: sem ele, falha com uma mensagem clara, e não em cada cliente.
