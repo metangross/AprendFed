@@ -1,5 +1,6 @@
 # ARQUIVO GERADO por scripts/gen_compose.py -- edite o script, não este arquivo.
-# Clientes: 3 | velocidades: 1.0,1.0,0.25
+# Clientes: 15 | velocidades: 1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0
+# Baterias (J): 1500.0,1000.0,500.0,1500.0,1000.0,500.0,1500.0,1000.0,500.0,1500.0,1000.0,500.0,1500.0,1000.0,500.0 | fatores de potência: 1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0 | rede (Mbps): 25.0,25.0,25.0,25.0,25.0,25.0,25.0,25.0,25.0,25.0,25.0,25.0,25.0,25.0,25.0 | rádio (W): 1.8,1.8,1.8,1.8,1.8,1.8,1.8,1.8,1.8,1.8,1.8,1.8,1.8,1.8,1.8
 
 x-gpu: &gpu
   deploy:
@@ -13,6 +14,8 @@ x-gpu: &gpu
 x-base: &base
   image: aprendfed:latest
   networks: [flower]
+  environment:
+    TZ: America/Sao_Paulo   # data/hora usadas no nome da pasta e nos JSONs da run
   volumes:
     - data:/data
     - ./outputs:/outputs
@@ -51,6 +54,20 @@ services:
     command: ["flwr", "run", "/app", "docker", "--stream"]
     depends_on: [superlink]
 
+  # Perfilamento de energia da GPU: `docker compose down && docker compose run --rm profiler`
+  # O NVML mede a placa inteira, então rode sem os outros containers. Grava em
+  # fedavg_app/profiles/ (o repositório é montado em /app).
+  profiler:
+    <<: [*base, *gpu]
+    profiles: [profiler]
+    volumes:
+      - data:/data
+      - ./:/app
+    command: ["python", "-m", "fedavg_app.profile_energy"]
+    depends_on:
+      dataset:
+        condition: service_completed_successfully
+
   supernode-0:
     <<: [*base, *gpu]
     container_name: supernode-0
@@ -60,7 +77,7 @@ services:
       - --superlink=superlink:9092
       - --isolation=subprocess
       - --clientappio-api-address=0.0.0.0:9094
-      - --node-config=partition-id=0 num-partitions=3 compute-speed=1.0
+      - --node-config=partition-id=0 num-partitions=15 compute-speed=1.0 power-factor=1.0 net-mbps=25.0 radio-w=1.8 battery-init=1500.0
     depends_on: [superlink]
 
   supernode-1:
@@ -72,7 +89,7 @@ services:
       - --superlink=superlink:9092
       - --isolation=subprocess
       - --clientappio-api-address=0.0.0.0:9094
-      - --node-config=partition-id=1 num-partitions=3 compute-speed=1.0
+      - --node-config=partition-id=1 num-partitions=15 compute-speed=1.0 power-factor=1.0 net-mbps=25.0 radio-w=1.8 battery-init=1000.0
     depends_on: [superlink]
 
   supernode-2:
@@ -84,7 +101,151 @@ services:
       - --superlink=superlink:9092
       - --isolation=subprocess
       - --clientappio-api-address=0.0.0.0:9094
-      - --node-config=partition-id=2 num-partitions=3 compute-speed=0.25
+      - --node-config=partition-id=2 num-partitions=15 compute-speed=1.0 power-factor=1.0 net-mbps=25.0 radio-w=1.8 battery-init=500.0
+    depends_on: [superlink]
+
+  supernode-3:
+    <<: [*base, *gpu]
+    container_name: supernode-3
+    command:
+      - flower-supernode
+      - --insecure
+      - --superlink=superlink:9092
+      - --isolation=subprocess
+      - --clientappio-api-address=0.0.0.0:9094
+      - --node-config=partition-id=3 num-partitions=15 compute-speed=1.0 power-factor=1.0 net-mbps=25.0 radio-w=1.8 battery-init=1500.0
+    depends_on: [superlink]
+
+  supernode-4:
+    <<: [*base, *gpu]
+    container_name: supernode-4
+    command:
+      - flower-supernode
+      - --insecure
+      - --superlink=superlink:9092
+      - --isolation=subprocess
+      - --clientappio-api-address=0.0.0.0:9094
+      - --node-config=partition-id=4 num-partitions=15 compute-speed=1.0 power-factor=1.0 net-mbps=25.0 radio-w=1.8 battery-init=1000.0
+    depends_on: [superlink]
+
+  supernode-5:
+    <<: [*base, *gpu]
+    container_name: supernode-5
+    command:
+      - flower-supernode
+      - --insecure
+      - --superlink=superlink:9092
+      - --isolation=subprocess
+      - --clientappio-api-address=0.0.0.0:9094
+      - --node-config=partition-id=5 num-partitions=15 compute-speed=1.0 power-factor=1.0 net-mbps=25.0 radio-w=1.8 battery-init=500.0
+    depends_on: [superlink]
+
+  supernode-6:
+    <<: [*base, *gpu]
+    container_name: supernode-6
+    command:
+      - flower-supernode
+      - --insecure
+      - --superlink=superlink:9092
+      - --isolation=subprocess
+      - --clientappio-api-address=0.0.0.0:9094
+      - --node-config=partition-id=6 num-partitions=15 compute-speed=1.0 power-factor=1.0 net-mbps=25.0 radio-w=1.8 battery-init=1500.0
+    depends_on: [superlink]
+
+  supernode-7:
+    <<: [*base, *gpu]
+    container_name: supernode-7
+    command:
+      - flower-supernode
+      - --insecure
+      - --superlink=superlink:9092
+      - --isolation=subprocess
+      - --clientappio-api-address=0.0.0.0:9094
+      - --node-config=partition-id=7 num-partitions=15 compute-speed=1.0 power-factor=1.0 net-mbps=25.0 radio-w=1.8 battery-init=1000.0
+    depends_on: [superlink]
+
+  supernode-8:
+    <<: [*base, *gpu]
+    container_name: supernode-8
+    command:
+      - flower-supernode
+      - --insecure
+      - --superlink=superlink:9092
+      - --isolation=subprocess
+      - --clientappio-api-address=0.0.0.0:9094
+      - --node-config=partition-id=8 num-partitions=15 compute-speed=1.0 power-factor=1.0 net-mbps=25.0 radio-w=1.8 battery-init=500.0
+    depends_on: [superlink]
+
+  supernode-9:
+    <<: [*base, *gpu]
+    container_name: supernode-9
+    command:
+      - flower-supernode
+      - --insecure
+      - --superlink=superlink:9092
+      - --isolation=subprocess
+      - --clientappio-api-address=0.0.0.0:9094
+      - --node-config=partition-id=9 num-partitions=15 compute-speed=1.0 power-factor=1.0 net-mbps=25.0 radio-w=1.8 battery-init=1500.0
+    depends_on: [superlink]
+
+  supernode-10:
+    <<: [*base, *gpu]
+    container_name: supernode-10
+    command:
+      - flower-supernode
+      - --insecure
+      - --superlink=superlink:9092
+      - --isolation=subprocess
+      - --clientappio-api-address=0.0.0.0:9094
+      - --node-config=partition-id=10 num-partitions=15 compute-speed=1.0 power-factor=1.0 net-mbps=25.0 radio-w=1.8 battery-init=1000.0
+    depends_on: [superlink]
+
+  supernode-11:
+    <<: [*base, *gpu]
+    container_name: supernode-11
+    command:
+      - flower-supernode
+      - --insecure
+      - --superlink=superlink:9092
+      - --isolation=subprocess
+      - --clientappio-api-address=0.0.0.0:9094
+      - --node-config=partition-id=11 num-partitions=15 compute-speed=1.0 power-factor=1.0 net-mbps=25.0 radio-w=1.8 battery-init=500.0
+    depends_on: [superlink]
+
+  supernode-12:
+    <<: [*base, *gpu]
+    container_name: supernode-12
+    command:
+      - flower-supernode
+      - --insecure
+      - --superlink=superlink:9092
+      - --isolation=subprocess
+      - --clientappio-api-address=0.0.0.0:9094
+      - --node-config=partition-id=12 num-partitions=15 compute-speed=1.0 power-factor=1.0 net-mbps=25.0 radio-w=1.8 battery-init=1500.0
+    depends_on: [superlink]
+
+  supernode-13:
+    <<: [*base, *gpu]
+    container_name: supernode-13
+    command:
+      - flower-supernode
+      - --insecure
+      - --superlink=superlink:9092
+      - --isolation=subprocess
+      - --clientappio-api-address=0.0.0.0:9094
+      - --node-config=partition-id=13 num-partitions=15 compute-speed=1.0 power-factor=1.0 net-mbps=25.0 radio-w=1.8 battery-init=1000.0
+    depends_on: [superlink]
+
+  supernode-14:
+    <<: [*base, *gpu]
+    container_name: supernode-14
+    command:
+      - flower-supernode
+      - --insecure
+      - --superlink=superlink:9092
+      - --isolation=subprocess
+      - --clientappio-api-address=0.0.0.0:9094
+      - --node-config=partition-id=14 num-partitions=15 compute-speed=1.0 power-factor=1.0 net-mbps=25.0 radio-w=1.8 battery-init=500.0
     depends_on: [superlink]
 
 networks:

@@ -1,0 +1,77 @@
+{
+  "model": "mobilenet_v3_small",
+  "image_size": 96,
+  "batch_size": 64,
+  "num_params": 1528106,
+  "gpu": "NVIDIA GeForce RTX 5070 Ti",
+  "driver": "570.211.01",
+  "torch": "2.7.1+cu128",
+  "method": "energy-counter",
+  "date": "2026-10-20T14:02:30",
+  "idle_power_w": 15.182754881187606,
+  "awake_idle_power_w": 46.015300732619316,
+  "epochs_per_repeat": 3,
+  "widths": {
+    "1.0": {
+      "time_per_sample_s": 9.370620054285973e-05,
+      "time_per_sample_std_s": 4.425256940951796e-07,
+      "energy_per_sample_j": 0.008881703125045192,
+      "energy_per_sample_std_j": 5.499238507413734e-05,
+      "train_power_w": 94.78244847823963,
+      "energy_per_sample_awake_j": 0.005846260667251898,
+      "train_power_awake_w": 62.389261685814596,
+      "repeats": [
+        {
+          "samples": 150000,
+          "wall_s": 14.909221327980049,
+          "compute_s": 14.167959957616404,
+          "energy_j": 1544.698,
+          "time_per_sample_s": 9.445306638410936e-05,
+          "energy_per_sample_j": 0.00878889964738603,
+          "energy_per_sample_awake_j": 0.005724304646025441,
+          "avg_power_w": 103.60688637045547
+        },
+        {
+          "samples": 150000,
+          "wall_s": 14.769428599975072,
+          "compute_s": 14.060706653865054,
+          "energy_j": 1555.979,
+          "time_per_sample_s": 9.373804435910037e-05,
+          "energy_per_sample_j": 0.00887825590554251,
+          "energy_per_sample_awake_j": 0.005842395342154656,
+          "avg_power_w": 105.35133363267867
+        },
+        {
+          "samples": 150000,
+          "wall_s": 14.706036374089308,
+          "compute_s": 14.00335219677072,
+          "energy_j": 1562.16,
+          "time_per_sample_s": 9.33556813118048e-05,
+          "energy_per_sample_j": 0.008925879029722488,
+          "energy_per_sample_awake_j": 0.0059030487577429475,
+          "avg_power_w": 106.22576745100285
+        },
+        {
+          "samples": 150000,
+          "wall_s": 14.714324467000552,
+          "compute_s": 14.013232507859357,
+          "energy_j": 1560.927,
+          "time_per_sample_s": 9.34215500523957e-05,
+          "energy_per_sample_j": 0.008916820122501792,
+          "energy_per_sample_awake_j": 0.005892286230490874,
+          "avg_power_w": 106.08213808935993
+        },
+        {
+          "samples": 150000,
+          "wall_s": 14.737961834995076,
+          "compute_s": 14.034399091033265,
+          "energy_j": 1558.562,
+          "time_per_sample_s": 9.356266060688843e-05,
+          "energy_per_sample_j": 0.008898660920073145,
+          "energy_per_sample_awake_j": 0.0058692683598455695,
+          "avg_power_w": 105.75152910894484
+        }
+      ]
+    }
+  }
+}
