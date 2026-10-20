@@ -14,6 +14,7 @@ dependencies = [
     "torchvision>=0.22.0",
     "pyarrow>=15",
     "pillow",
+    "nvidia-ml-py>=12",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -50,5 +51,17 @@ seed = 42
 #   "drop"    -> cliente que estoura o prazo é descartado da rodada
 straggler-policy = "wait"
 round-deadline = 0.5        # segundos (tempo emulado); ignorado em "wait"
+# Energia e bateria (docs/custo_energia_rodada.pdf). Exige o perfil da GPU em
+# fedavg_app/profiles/ (`docker compose run --rm profiler`). Bateria inicial,
+# potência e rede de cada cliente ficam no --node-config (gen_compose.py).
+energy = false              # contabiliza a energia de cada rodada e desconta da bateria
+energy-fixed-j = 0.0        # D: custo fixo por rodada em J (acordar, cauda do rádio)
+#   "idle"    -> desconta o repouso (P8): o treino paga o cálculo e o clock alto
+#   "awake"   -> desconta a GPU acordada (P1): o treino paga só o cálculo
+# Runs com bases diferentes não são comparáveis; a escolha vai para o metrics.json.
+energy-baseline = "idle"
+#   "drop"    -> treina até a bateria acabar e é descartado (FedAvg sem controle)
+#   "partial" -> para a tempo de enviar o modelo e envia o que treinou
+battery-empty-policy = "drop"
 data-dir = "/data"
 output-dir = "/outputs"

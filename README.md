@@ -26,6 +26,8 @@ partição 0   partição 1   partição N-1        sobre a sua partição do CI
 | `fedavg_app/task.py` | Modelo CNN, particionamento (IID ou Dirichlet), treino/teste |
 | `fedavg_app/client_app.py` | ClientApp: `@app.train()` e `@app.evaluate()` |
 | `fedavg_app/server_app.py` | ServerApp: `FedAvg`, avaliação global, salva modelo/métricas |
+| `fedavg_app/energy.py` | Modelo de energia por rodada (computação + comunicação + custo fixo) |
+| `fedavg_app/profile_energy.py` | Perfilamento de energia da GPU via NVML; grava em `fedavg_app/profiles/` |
 | `pyproject.toml` | Hiperparâmetros do experimento (`[tool.flwr.app.config]`) |
 | `docker/Dockerfile` | Imagem única (PyTorch 2.7.1 + CUDA 12.8 + Flower) |
 | `scripts/gen_compose.py` | Gera o `docker-compose.yml` com N clientes e suas velocidades |
@@ -155,7 +157,12 @@ outputs/run-<run_id>-<DDMMAAAA>/clients/partition-1.jsonl
 |---|---|
 | `round`, `phase` | rodada e fase (`train` ou `evaluate`) |
 | `partition_id`, `node_id`, `compute_speed` | identificação do cliente |
-| `status` | `ok`, `partial` (parou no prazo) ou `dropped` (descartado) |
+| `status` | `ok`, `partial` (parou no prazo ou pela bateria), `dropped` (descartado pelo prazo), `depleted` (a bateria acabou nesta rodada), `dead` (já estava sem bateria) ou `skipped` (sem energia para treinar e enviar) |
+| `stop_reason` | por que o treino parou antes do fim: `deadline`, `battery` ou vazio |
+| `battery_before`, `battery_after`, `energy_j` | bateria (J) antes e depois da rodada e energia gasta (com `energy=true`) |
+| `energy_compute_j`, `energy_comm_j`, `energy_fixed_j` | energia da computação, da comunicação (download + upload) e o custo fixo |
+| `bw_down_mbps`, `bw_up_mbps`, `net_mbps`, `power_factor` | vazões sorteadas na rodada e parâmetros do cliente |
+| `energy_baseline` | linha de base usada (`idle` ou `awake`) |
 | `train_loss`, `steps`, `examples_processed`, `num_examples` | treino local |
 | `compute_time_s` / `sim_time_s` | tempo real na GPU / tempo emulado com a lentidão |
 | `eval_loss`, `eval_acc` | avaliação do modelo global na validação local |
@@ -199,6 +206,70 @@ O prazo é em segundos de tempo emulado e depende da sua GPU: rode uma vez com
 `wait` e veja `sim_time_s` nos `.jsonl` para calibrar. O efeito na acurácia
 aparece mais com dados não-IID (o cliente descartado tem classes que os
 outros não têm).
+
+## Energia e bateria
+
+O modelo de energia segue `docs/custo_energia_rodada.pdf` (seções 1 e 7),
+por enquanto só com o modelo completo (largura 1):
+
+```
+E = n_amostras · P_cmp · t_amostra / v  +  P_rádio · bits · (1/vazão_down + 1/vazão_up)  +  D
+```
+
+**1. Perfilamento (uma vez por GPU e configuração).** Mede, com o NVML, a
+potência em repouso e a energia e o tempo por amostra do treino, usando o mesmo
+`train()` dos clientes. Como o NVML mede a placa inteira, derrube os outros
+containers antes:
+
+```bash
+docker compose down
+docker compose run --rm profiler            # usa model/image-size/batch-size do pyproject
+docker compose run --rm profiler python -m fedavg_app.profile_energy --model mobilenet_v3_small --image-size 96
+```
+
+O resultado vai para `fedavg_app/profiles/<model>-i<image-size>-b<batch-size>.json`.
+Ele deve ser versionado junto com o código, porque os clientes o recebem no FAB.
+Durante os experimentos, a energia é **calculada** a partir desse perfil, e não
+medida, então as runs com a mesma seed dão os mesmos níveis de bateria. O
+arquivo guarda duas linhas de base: o repouso (P8, usado como `train_power_w`)
+e a GPU acordada sem calcular (P1, ~15 s após a carga, em `*_awake_*`).
+
+**2. Clientes.** Bateria inicial, potência, rede e rádio de cada cliente vão no
+`--node-config`, como o `compute-speed`. As listas se repetem como em `--speeds`:
+
+```bash
+./run.sh -n 6 -s 1.0,0.5 -b 500,200 --net-mbps 75,25,5 --power-factors 1.0,0.57,0.43 \
+         -c "energy=true num-server-rounds=20"
+```
+
+| Opção (`gen_compose.py` / `run.sh`) | `--node-config` | Significado |
+|---|---|---|
+| `-b`, `--batteries` | `battery-init` | bateria inicial (J); sem ela, a energia só é contabilizada |
+| `--power-factors` | `power-factor` | potência de treino = P_ref do perfil × fator |
+| `--net-mbps` | `net-mbps` | teto da vazão; a cada rodada, vazão de download e de upload sorteadas em U(1, teto) |
+| `--radio-w` | `radio-w` | potência do rádio ao baixar e enviar (W) |
+
+**3. Configuração do run** (`pyproject.toml`):
+
+- `energy`: liga a contabilização (padrão `false`, o que não muda nada no FedAvg).
+- `energy-fixed-j`: custo fixo D por rodada (J).
+- `energy-baseline`: linha de base descontada da energia medida. `idle`
+  (repouso, P8; padrão) cobra do treino o cálculo e o clock alto; `awake`
+  (GPU acordada, P1) cobra só o cálculo e dá cerca de 36% menos energia por
+  amostra. Não misture bases numa mesma comparação.
+- `battery-empty-policy`: `drop` (o cliente treina até a bateria acabar e é
+  descartado, como um FedAvg sem controle de energia) ou `partial` (para a tempo
+  de enviar o modelo e envia o que treinou, com peso menor).
+
+As escolhas ficam registradas na seção `energy` do `metrics.json`: base usada
+e sua potência, perfil (arquivo, GPU, data), tempo e energia por amostra de
+referência, custo fixo e `battery-empty-policy`. Cada linha de treino dos
+`.jsonl` também traz `energy_baseline`.
+
+Cada rodada desconta, nesta ordem, o custo fixo e o download, a computação
+(batch a batch, dentro do `train()`) e o upload. Um cliente sem bateria responde
+com o erro `BATTERY_DEPLETED` (101) no treino e na avaliação. A avaliação não
+gasta bateria.
 
 ## Observações
 

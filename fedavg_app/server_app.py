@@ -10,6 +10,7 @@ from flwr.app import ArrayRecord, ConfigRecord, Context, Message, MetricRecord
 from flwr.serverapp import Grid, ServerApp
 from flwr.serverapp.strategy import FedAvg
 
+from fedavg_app.energy import BASELINES, BATTERY_EMPTY_POLICIES, energy_summary
 from fedavg_app.task import (
     get_device,
     get_model,
@@ -48,6 +49,12 @@ def main(grid: Grid, context: Context) -> None:
     data_dir = str(rc["data-dir"])
     if rc["straggler-policy"] not in STRAGGLER_POLICIES:
         raise ValueError(f"straggler-policy deve ser um de {STRAGGLER_POLICIES}")
+    if rc["battery-empty-policy"] not in BATTERY_EMPTY_POLICIES:
+        raise ValueError(f"battery-empty-policy deve ser um de {BATTERY_EMPTY_POLICIES}")
+    if rc["energy-baseline"] not in BASELINES:
+        raise ValueError(f"energy-baseline deve ser um de {tuple(BASELINES)}")
+    # Lê o perfil já aqui: sem ele, falha com uma mensagem clara, e não em cada cliente.
+    energy = energy_summary(rc) if rc["energy"] else {"enabled": False}
     # Data/hora calculadas só aqui e repassadas aos clientes (mesma pasta para todos).
     started = datetime.now()
     run_date, run_time = started.strftime("%d%m%Y"), started.strftime("%H:%M:%S")
@@ -96,6 +103,7 @@ def main(grid: Grid, context: Context) -> None:
         "run_date": run_date,
         "run_time": run_time,
         "run_config": dict(rc),
+        "energy": energy,
         "train_clients": {r: dict(m) for r, m in result.train_metrics_clientapp.items()},
         "evaluate_clients": {
             r: dict(m) for r, m in result.evaluate_metrics_clientapp.items()
@@ -104,5 +112,7 @@ def main(grid: Grid, context: Context) -> None:
             r: dict(m) for r, m in result.evaluate_metrics_serverapp.items()
         },
     }
-    (out_dir / "metrics.json").write_text(json.dumps(history, indent=2))
+    (out_dir / "metrics.json").write_text(
+        json.dumps(history, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     print(f"Modelo final e métricas salvos em {out_dir}")

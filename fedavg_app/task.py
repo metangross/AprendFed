@@ -1,5 +1,6 @@
 """Modelo, dados (CIFAR-10 particionado) e laços de treino/avaliação."""
 
+import math
 import random
 import time
 from functools import lru_cache
@@ -202,6 +203,8 @@ def train(
     device: torch.device,
     compute_speed: float = 1.0,
     deadline: float = 0.0,
+    energy_per_sample: float = 0.0,
+    energy_budget: float = math.inf,
 ) -> dict:
     """Treino local com emulação de hardware heterogêneo.
 
@@ -209,6 +212,10 @@ def train(
     cliente dorme o tempo extra que um hardware `1/compute_speed` vezes mais
     lento levaria. `sim_time` é o tempo (emulado) que o cliente "gastou".
     Se `deadline` > 0, o treino para quando `sim_time` atinge o prazo.
+
+    Cada batch custa `energy_per_sample` × tamanho do batch (J). O treino para
+    antes do batch que ultrapassaria `energy_budget`; `stop_reason` diz se ele
+    parou pelo prazo ("deadline") ou pela energia ("battery").
     """
     net.to(device).train()
     optimizer = torch.optim.SGD(net.parameters(), lr=lr, momentum=momentum)
@@ -224,10 +231,14 @@ def train(
     torch.cuda.synchronize(device)
 
     total_loss, seen, steps = 0.0, 0, 0
-    compute_time, sim_time = 0.0, 0.0
-    completed = True
+    compute_time, sim_time, energy = 0.0, 0.0, 0.0
+    stop_reason = ""
     for _ in range(epochs):
         for xb, yb in loader:
+            cost = energy_per_sample * len(yb)
+            if energy + cost > energy_budget:
+                stop_reason = "battery"
+                break
             t0 = time.perf_counter()
             xb, yb = xb.to(device, non_blocking=True), yb.to(device, non_blocking=True)
             optimizer.zero_grad()
@@ -240,12 +251,13 @@ def train(
                 time.sleep(dt * (1.0 / compute_speed - 1.0))
             compute_time += dt
             sim_time += dt / compute_speed
+            energy += cost
             seen += len(yb)
             steps += 1
             if deadline > 0 and sim_time >= deadline:
-                completed = False
+                stop_reason = "deadline"
                 break
-        if not completed:
+        if stop_reason:
             break
     return {
         "train_loss": total_loss / max(seen, 1),
@@ -253,7 +265,8 @@ def train(
         "steps": steps,
         "compute_time_s": compute_time,
         "sim_time_s": sim_time,
-        "completed": completed,
+        "energy_compute_j": energy,
+        "stop_reason": stop_reason,
     }
 
 

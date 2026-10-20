@@ -12,7 +12,8 @@ RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends tzdata \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip install "flwr==1.30.0" "pyarrow>=15"
+# nvidia-ml-py: leitura do contador de energia da GPU (fedavg_app/profile_energy.py).
+RUN pip install "flwr==1.30.0" "pyarrow>=15" "nvidia-ml-py>=12"
 
 # Conexão do CLI `flwr` com o SuperLink dentro da rede do compose.
 COPY docker/flwr_home/config.toml /flwr_home/config.toml
