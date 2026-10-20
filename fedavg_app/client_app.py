@@ -145,6 +145,9 @@ def train(msg: Message, context: Context) -> Message:
         left = max(1.0, float(rc["fraction-train"]) * (int(rc["num-server-rounds"])
                                                        - server_round + 1))
         round_budget = battery / left
+        # Abaixo de min-data-fraction, a rede domina o custo: guarda a energia para
+        # participar depois com mais dados. Na última participação não há depois.
+        min_k = float(rc["min-data-fraction"]) * num_examples if left > 1 else 0.0
         compute = cost.per_sample * num_examples * int(rc["local-epochs"])
         comm = expected_comm(nc, num_params, rc["comm-estimate"])
         eta = data_fraction(str(rc["energy-policy"]), round_budget, compute, comm,
@@ -152,7 +155,7 @@ def train(msg: Message, context: Context) -> Message:
         k = math.floor(eta * num_examples)
         energy_log |= {"round_budget_j": round_budget, "comm_reserved_j": comm,
                        "data_fraction": k / num_examples}
-        if k == 0:
+        if k == 0 or k < min_k:
             # Decide ao receber o convite da rodada, antes de baixar o modelo: não gasta.
             _log_metrics(msg, context, "train", {"status": "skipped", **energy_log,
                                                  "num_examples": num_examples,
@@ -174,7 +177,7 @@ def train(msg: Message, context: Context) -> Message:
                             cost.fixed)
         k = math.floor(eta * num_examples)
         energy_log |= {"comm_reserved_j": comm, "data_fraction": k / num_examples}
-        if k == 0:
+        if k == 0 or k < min_k:
             # O download saiu caro: desiste antes de treinar e não paga o upload.
             _set_battery(context, battery - pre)
             _log_metrics(msg, context, "train", {"status": "skipped", **energy_log,

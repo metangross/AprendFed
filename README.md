@@ -335,6 +335,13 @@ rodada sem treinar nem enviar (já pagou o download).
 ./run.sh -c "energy=true energy-policy='leanfed-c' eta-after-download=true"
 ```
 
+Cada participação paga a comunicação inteira, qualquer que seja η. Com bateria
+pequena, o cliente pode gastar quase tudo na rede para treinar poucos dados.
+Com `min-data-fraction` (ex.: `0.2`), ele pula as rodadas em que η sairia
+abaixo desse valor e guarda a energia para participar depois com mais dados.
+Na última participação esperada, participa com qualquer η > 0, porque não há
+rodada seguinte para usar a energia guardada.
+
 ```bash
 ./run.sh -n 15 -b 1500,1000,500 -c "energy=true energy-policy='leanfed-c'"
 ```

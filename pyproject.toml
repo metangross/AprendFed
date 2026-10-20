@@ -75,5 +75,8 @@ energy-policy = "none"
 comm-estimate = "mean"
 # Refaz η depois do download, com o custo real dele e só o upload estimado.
 eta-after-download = false
+# Com η abaixo disso, o cliente pula a rodada e guarda a energia para participar
+# depois com mais dados (exceto na última participação). 0 = participa com qualquer η.
+min-data-fraction = 0.0
 data-dir = "/data"
 output-dir = "/outputs"
