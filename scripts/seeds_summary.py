@@ -38,6 +38,8 @@ LEANFED_C_ONLY = ("comm-estimate", "eta-after-download", "min-data-fraction")
 # Valem para as políticas com orçamento (leanfed e leanfed-c), não para o FedAvg.
 BUDGET_ONLY = ("tail-margin",)
 IGNORE = ("seed", "min-nodes", "data-dir", "output-dir")
+# Chaves de setup que as runs anteriores a elas não têm, com o valor que tinham.
+SETUP_DEFAULTS = {"dataset": "cifar10"}
 NAMES = {"none": "FedAvg", "leanfed": "LeanFed", "leanfed-c": "LeanFed-c"}
 METRICS = (  # coluna, título, formato
     ("acuracia_ultimas", "últimas", "{:.1%}"),
@@ -66,7 +68,10 @@ def variant_label(key: tuple) -> str:
 
 
 def setup(run: Run) -> tuple:
-    rc = {k: v for k, v in run.rc.items() if k not in IGNORE and k not in VARIANT}
+    rc = {k: v for k, v in {**SETUP_DEFAULTS, **run.rc}.items()
+          if k not in IGNORE and k not in VARIANT}
+    if rc["dataset"] != "femnist":
+        rc.pop("writers-per-client", None)
     nodes = {pid: (rows[0].get("battery_before"), rows[0].get("net_mbps"))
              for pid, rows in run.clients.items()}
     return tuple(sorted(rc.items())), tuple(sorted(nodes.items()))

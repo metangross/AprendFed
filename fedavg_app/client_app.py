@@ -60,7 +60,8 @@ def _setup(msg: Message, context: Context):
         int(nc["partition-id"]),
     )
     # Os pesos vêm do servidor; aqui só a arquitetura importa (pretrained=False).
-    net = get_model(str(rc["model"]), image_size=int(rc["image-size"]))
+    net = get_model(str(rc["model"]), image_size=int(rc["image-size"]),
+                    dataset=str(rc["dataset"]))
     net.load_state_dict(msg.content["arrays"].to_torch_state_dict())
     trainloader, valloader = load_partition(
         partition_id=int(nc["partition-id"]),
@@ -70,6 +71,8 @@ def _setup(msg: Message, context: Context):
         method=str(rc["partitioning"]),
         alpha=float(rc["dirichlet-alpha"]),
         seed=int(rc["seed"]),
+        dataset=str(rc["dataset"]),
+        writers_per_client=int(rc["writers-per-client"]),
     )
     return net, trainloader, valloader
 

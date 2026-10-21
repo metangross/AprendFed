@@ -41,8 +41,12 @@ local-epochs = 1
 batch-size = 64
 lr = 0.01
 momentum = 0.9
-partitioning = "iid"        # "iid" ou "dirichlet" (não-IID)
+dataset = "cifar10"         # "cifar10" ou "femnist" (caracteres escritos à mão, 62 classes)
+partitioning = "iid"        # "iid", "dirichlet" (não-IID) ou "writer" (só FEMNIST)
 dirichlet-alpha = 0.5       # usado apenas quando partitioning = "dirichlet"
+# FEMNIST: escritores sorteados por cliente (~226 caracteres cada). Com "writer",
+# cada cliente fica com os seus escritores inteiros (partição natural, por usuário).
+writers-per-client = 12
 seed = 42
 # Heterogeneidade de hardware (a velocidade de cada cliente fica no
 # docker-compose.yml, em --node-config compute-speed=...):

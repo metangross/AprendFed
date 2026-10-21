@@ -18,6 +18,7 @@ from fedavg_app.energy import (
     energy_summary,
 )
 from fedavg_app.task import (
+    DATASETS,
     get_device,
     get_model,
     load_centralized_test,
@@ -66,6 +67,10 @@ def main(grid: Grid, context: Context) -> None:
         raise ValueError("min-data-fraction deve estar em [0, 1]")
     if not 0 <= float(rc["tail-margin"]) < 1:
         raise ValueError("tail-margin deve ser 0 (sem margem) ou um percentil em (0, 1)")
+    if rc["dataset"] not in DATASETS:
+        raise ValueError(f"dataset deve ser um de {DATASETS}")
+    if rc["partitioning"] == "writer" and rc["dataset"] != "femnist":
+        raise ValueError("partitioning='writer' só existe no FEMNIST")
     if rc["energy-baseline"] not in BASELINES:
         raise ValueError(f"energy-baseline deve ser um de {tuple(BASELINES)}")
     # Lê o perfil já aqui: sem ele, falha com uma mensagem clara, e não em cada cliente.
@@ -80,9 +85,10 @@ def main(grid: Grid, context: Context) -> None:
     device = get_device()
 
     def new_model(pretrained: bool = False):
-        return get_model(str(rc["model"]), pretrained, int(rc["image-size"]))
+        return get_model(str(rc["model"]), pretrained, int(rc["image-size"]),
+                         str(rc["dataset"]))
 
-    testloader = load_centralized_test(data_dir)
+    testloader = load_centralized_test(data_dir, dataset=str(rc["dataset"]))
 
     def central_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord:
         net = new_model()

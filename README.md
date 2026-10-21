@@ -4,7 +4,8 @@ Repositório para praticar e aprender aprendizado federado.
 
 Implementação do **FedAvg** com [Flower](https://flower.ai) 1.30 + PyTorch,
 em que o servidor e cada cliente rodam em **containers Docker separados** e
-treinam na **GPU** da máquina. Dataset: CIFAR-10, particionado entre os clientes.
+treinam na **GPU** da máquina. Datasets: CIFAR-10 (padrão) ou FEMNIST,
+particionados entre os clientes (ver [Datasets](#datasets)).
 
 ## Arquitetura
 
@@ -120,7 +121,7 @@ Escolhidos no `pyproject.toml` ou na linha de comando:
 | `model` | Descrição |
 |---|---|
 | `cnn` (padrão) | CNN simples (~620 mil parâmetros), rápida, teto de ~76% no CIFAR-10 |
-| `mobilenet_v3_small` | MobileNetV3-Small do torchvision (~1,5 milhão de parâmetros), com a última camada trocada para 10 classes |
+| `mobilenet_v3_small` | MobileNetV3-Small do torchvision (~1,5 milhão de parâmetros), com a última camada trocada para as classes do dataset |
 
 ```bash
 ./run.sh -c "model='mobilenet_v3_small' pretrained=true image-size=96"
@@ -142,6 +143,34 @@ Resultado de 5 rodadas (3 clientes, IID, 1 época local):
 | `mobilenet_v3_small` (do zero, 32 px) | 50,6% | 1,5 s |
 | `mobilenet_v3_small` pré-treinada, 32 px | 58,4% | 1,5 s |
 | `mobilenet_v3_small` pré-treinada, 96 px | 88,6% | 1,9 s |
+
+## Datasets
+
+| `dataset` | Descrição | Partições (`partitioning`) |
+|---|---|---|
+| `cifar10` (padrão) | 60 mil imagens coloridas 32×32, 10 classes | `iid`, `dirichlet` |
+| `femnist` | 814 mil caracteres escritos à mão (28×28, tons de cinza) por 3.597 pessoas, 62 classes (dígitos, maiúsculas, minúsculas) | `writer`, `iid`, `dirichlet` |
+
+O CIFAR-10 é o dataset do LeanFed, mas a divisão entre clientes é artificial. No
+FEMNIST, cada pessoa é um usuário real: com `partitioning='writer'` (partição
+natural), cada cliente fica com os caracteres de `writers-per-client` pessoas
+(padrão 12, ~2.700 caracteres, a mesma escala de um cliente do CIFAR-10 com 15
+clientes). As pessoas são sorteadas pela seed; `iid` e `dirichlet` redistribuem
+os caracteres dessas mesmas pessoas, para comparar a partição natural com a
+artificial nos mesmos dados. O teste centralizado usa 50 pessoas fixas, que
+nunca vão para um cliente (mede a generalização para usuários novos).
+
+O FEMNIST não é baixado pelo `docker compose up`. Uma vez só (~200 MB, alguns
+minutos para converter):
+
+```bash
+docker compose run --rm -v ./:/app dataset python -m fedavg_app.prepare_data /data femnist
+./run.sh -c "dataset='femnist' partitioning='writer' model='mobilenet_v3_small' pretrained=true image-size=96"
+```
+
+As imagens em tons de cinza são replicadas nos 3 canais e ampliadas na GPU, então
+os dois modelos e o perfil de energia (que depende de `model`, `image-size` e
+`batch-size`) servem para os dois datasets.
 
 ## Métricas por cliente
 

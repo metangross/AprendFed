@@ -42,8 +42,10 @@ from plot_run import (  # noqa: E402
 )
 
 # Chaves que, se diferentes, tornam a comparação injusta (fora a que se testa).
-SAME = ("model", "pretrained", "image-size", "partitioning", "dirichlet-alpha", "seed",
-        "num-server-rounds", "local-epochs", "batch-size", "lr", "fraction-train")
+SAME = ("dataset", "model", "pretrained", "image-size", "partitioning", "dirichlet-alpha",
+        "seed", "num-server-rounds", "local-epochs", "batch-size", "lr", "fraction-train")
+# Valor das chaves de SAME nas runs anteriores a elas.
+SAME_DEFAULTS = {"dataset": "cifar10"}
 LABEL_GAP = 0.025  # distância mínima (em acurácia) entre rótulos de ponta
 
 
@@ -89,7 +91,7 @@ def main() -> None:
 
     runs = [Run(find_run(r)) for r in args.runs]
     for key in SAME:
-        vals = {str(r.rc.get(key)) for r in runs}
+        vals = {str(r.rc.get(key, SAME_DEFAULTS.get(key))) for r in runs}
         if len(vals) > 1:
             print(f"AVISO: as runs diferem em {key}: {sorted(vals)}")
     if len({len(r.clients) for r in runs}) > 1:

@@ -1,4 +1,4 @@
-"""Modelo, dados (CIFAR-10 particionado) e laços de treino/avaliação."""
+"""Modelo, dados (CIFAR-10 ou FEMNIST particionados) e laços de treino/avaliação."""
 
 import math
 import random
@@ -14,6 +14,9 @@ from torch.utils.data import DataLoader, TensorDataset
 
 CIFAR_MEAN = torch.tensor([0.4914, 0.4822, 0.4465]).view(1, 3, 1, 1)
 CIFAR_STD = torch.tensor([0.2470, 0.2435, 0.2616]).view(1, 3, 1, 1)
+
+DATASETS = ("cifar10", "femnist")
+NUM_CLASSES = {"cifar10": 10, "femnist": 62}
 
 
 def set_seed(*keys: int) -> None:
@@ -40,16 +43,16 @@ def get_device() -> torch.device:
 
 
 class Net(nn.Module):
-    """CNN simples para CIFAR-10."""
+    """CNN simples para imagens 3x32x32."""
 
-    def __init__(self) -> None:
+    def __init__(self, num_classes: int = 10) -> None:
         super().__init__()
         self.conv1 = nn.Conv2d(3, 32, 3, padding=1)
         self.conv2 = nn.Conv2d(32, 64, 3, padding=1)
         self.conv3 = nn.Conv2d(64, 128, 3, padding=1)
         self.pool = nn.MaxPool2d(2, 2)
         self.fc1 = nn.Linear(128 * 4 * 4, 256)
-        self.fc2 = nn.Linear(256, 10)
+        self.fc2 = nn.Linear(256, num_classes)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.pool(F.relu(self.conv1(x)))
@@ -61,37 +64,44 @@ class Net(nn.Module):
 
 
 class Resize(nn.Module):
-    """Amplia a entrada (32x32) antes do modelo; feito na GPU."""
+    """Adapta a entrada antes do modelo, na GPU: replica imagens em tons de cinza
+    (FEMNIST) nos 3 canais e amplia para `size` x `size`."""
 
     def __init__(self, net: nn.Module, size: int) -> None:
         super().__init__()
         self.net, self.size = net, size
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = F.interpolate(x, size=self.size, mode="bilinear", align_corners=False)
+        if x.shape[1] == 1:
+            x = x.expand(-1, 3, -1, -1)
+        if x.shape[-1] != self.size:
+            x = F.interpolate(x, size=self.size, mode="bilinear", align_corners=False)
         return self.net(x)
 
 
 MODELS = ("cnn", "mobilenet_v3_small")
 
 
-def get_model(name: str, pretrained: bool = False, image_size: int = 32) -> nn.Module:
+def get_model(name: str, pretrained: bool = False, image_size: int = 32,
+              dataset: str = "cifar10") -> nn.Module:
     """Cria o modelo. Servidor e clientes devem usar os mesmos argumentos
     (exceto `pretrained`, que só importa para os pesos iniciais no servidor)."""
+    num_classes = NUM_CLASSES[dataset]
     if name == "cnn":
         if pretrained:
             raise ValueError("O modelo 'cnn' não tem pesos pré-treinados")
-        net: nn.Module = Net()
+        net: nn.Module = Net(num_classes)
     elif name == "mobilenet_v3_small":
         from torchvision.models import MobileNet_V3_Small_Weights, mobilenet_v3_small
 
         weights = MobileNet_V3_Small_Weights.IMAGENET1K_V1 if pretrained else None
         net = mobilenet_v3_small(weights=weights)
-        # Troca a última camada (1000 classes do ImageNet) por uma de 10 classes.
-        net.classifier[3] = nn.Linear(net.classifier[3].in_features, 10)
+        # Troca a última camada (1000 classes do ImageNet) pela do dataset.
+        net.classifier[3] = nn.Linear(net.classifier[3].in_features, num_classes)
     else:
         raise ValueError(f"Modelo desconhecido: {name!r}. Opções: {MODELS}")
-    return Resize(net, image_size) if image_size != 32 else net
+    # O FEMNIST (1x28x28) sempre passa pelo Resize; o CIFAR-10 só se for ampliado.
+    return Resize(net, image_size) if image_size != 32 or dataset != "cifar10" else net
 
 
 # --------------------------------------------------------------------------- #
@@ -142,6 +152,101 @@ def _load_split(data_dir: str, train: bool) -> tuple[torch.Tensor, torch.Tensor]
     return x, y
 
 
+FEMNIST_URL = "https://huggingface.co/datasets/flwrlabs/femnist/resolve/main/data/train-00000-of-00001.parquet"
+# Escritores separados para o teste centralizado: sorteados com uma seed fixa,
+# são os mesmos em todas as runs e nunca vão para um cliente.
+FEMNIST_TEST_WRITERS = 50
+FEMNIST_TEST_SEED = 0
+
+
+def _femnist_path(data_dir: str, name: str) -> Path:
+    return Path(data_dir) / f"femnist_{name}.npy"
+
+
+def download_femnist(data_dir: str) -> None:
+    """Baixa o FEMNIST (814 mil caracteres 28x28 de 3.597 escritores) e salva em
+    .npy: imagens uint8, rótulos (62 classes) e o índice do escritor de cada uma.
+    Em .npy, os clientes leem com mmap só os índices de que precisam."""
+    import io
+    import urllib.request
+
+    import pyarrow.parquet as pq
+    from PIL import Image
+
+    if _femnist_path(data_dir, "writer").exists():
+        return
+    Path(data_dir).mkdir(parents=True, exist_ok=True)
+    print(f"Baixando {FEMNIST_URL}", flush=True)
+    with urllib.request.urlopen(FEMNIST_URL) as resp:
+        table = pq.read_table(io.BytesIO(resp.read()))
+    images = np.stack(
+        [np.array(Image.open(io.BytesIO(img["bytes"])).convert("L"))
+         for img in table.column("image").to_pylist()]
+    )
+    labels = np.array(table.column("character").to_pylist(), dtype=np.int64)
+    _, writers = np.unique(np.array(table.column("writer_id").to_pylist()),
+                           return_inverse=True)
+    # O escritor por último: ele marca o download como completo.
+    for name, arr in (("x", images), ("y", labels), ("writer", writers.astype(np.int32))):
+        tmp = _femnist_path(data_dir, name + ".tmp")
+        np.save(tmp, arr)
+        tmp.rename(_femnist_path(data_dir, name))
+    print(f"FEMNIST: {images.shape}, {writers.max() + 1} escritores", flush=True)
+
+
+@lru_cache(maxsize=1)
+def _femnist_arrays(data_dir: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Imagens (mmap, uint8), rótulos e escritores do FEMNIST."""
+    if not _femnist_path(data_dir, "writer").exists():
+        raise FileNotFoundError(
+            "FEMNIST não encontrado em " + data_dir + ". Rode "
+            "`docker compose run --rm -v ./:/app dataset "
+            "python -m fedavg_app.prepare_data /data femnist`."
+        )
+    return (np.load(_femnist_path(data_dir, "x"), mmap_mode="r"),
+            np.load(_femnist_path(data_dir, "y")),
+            np.load(_femnist_path(data_dir, "writer")))
+
+
+def _femnist_tensors(data_dir: str, idx: np.ndarray) -> tuple[torch.Tensor, torch.Tensor]:
+    """Converte só as imagens `idx`: traço claro sobre fundo 0, em [-1, 1]."""
+    x, y, _ = _femnist_arrays(data_dir)
+    xs = 1.0 - torch.from_numpy(np.asarray(x[idx])).float().div(255.0)
+    return (xs.unsqueeze(1) - 0.5) / 0.5, torch.from_numpy(y[idx])
+
+
+def femnist_test_writers(num_writers: int) -> np.ndarray:
+    return np.random.default_rng(FEMNIST_TEST_SEED).permutation(num_writers)[
+        :FEMNIST_TEST_WRITERS]
+
+
+@lru_cache(maxsize=2)
+def femnist_partitions(data_dir: str, num_partitions: int, method: str, alpha: float,
+                       seed: int, writers_per_client: int) -> list[np.ndarray]:
+    """Divide o FEMNIST entre os clientes.
+
+    A seed sorteia num_partitions × writers_per_client escritores (fora os do teste).
+    "writer" dá a cada cliente os seus escritores inteiros (partição natural, por
+    usuário); "iid" e "dirichlet" redistribuem as amostras desses mesmos escritores.
+    """
+    _, y, w = _femnist_arrays(data_dir)
+    num_writers = int(w.max()) + 1
+    test = femnist_test_writers(num_writers)
+    pool = np.setdiff1d(np.arange(num_writers), test)
+    need = num_partitions * writers_per_client
+    if need > len(pool):
+        raise ValueError(f"FEMNIST tem {len(pool)} escritores para os clientes; "
+                         f"{num_partitions} × {writers_per_client} = {need}")
+    rng = np.random.default_rng(seed)
+    chosen = rng.choice(pool, size=need, replace=False)
+    if method == "writer":
+        groups = chosen.reshape(num_partitions, writers_per_client)
+        return [rng.permutation(np.flatnonzero(np.isin(w, g))) for g in groups]
+    sample = np.flatnonzero(np.isin(w, chosen))
+    parts = partition_indices(y[sample], num_partitions, method, alpha, seed)
+    return [sample[p] for p in parts]
+
+
 def partition_indices(
     labels: np.ndarray, num_partitions: int, method: str, alpha: float, seed: int
 ) -> list[np.ndarray]:
@@ -173,10 +278,18 @@ def load_partition(
     method: str = "iid",
     alpha: float = 0.5,
     seed: int = 42,
+    dataset: str = "cifar10",
+    writers_per_client: int = 12,
 ) -> tuple[DataLoader, DataLoader]:
     """Retorna (train, val) da partição local do cliente (split 80/20)."""
-    x, y = _load_split(data_dir, True)
-    idx = partition_indices(y.numpy(), num_partitions, method, alpha, seed)[partition_id]
+    if dataset == "femnist":
+        idx = femnist_partitions(data_dir, num_partitions, method, alpha, seed,
+                                 writers_per_client)[partition_id]
+        x, y = _femnist_tensors(data_dir, idx)
+        idx = np.arange(len(idx))
+    else:
+        x, y = _load_split(data_dir, True)
+        idx = partition_indices(y.numpy(), num_partitions, method, alpha, seed)[partition_id]
     n_val = max(1, int(0.2 * len(idx)))
     val_idx, train_idx = idx[:n_val], idx[n_val:]
     trainloader = DataLoader(
@@ -186,8 +299,14 @@ def load_partition(
     return trainloader, valloader
 
 
-def load_centralized_test(data_dir: str, batch_size: int = 512) -> DataLoader:
-    x, y = _load_split(data_dir, False)
+def load_centralized_test(data_dir: str, batch_size: int = 512,
+                          dataset: str = "cifar10") -> DataLoader:
+    if dataset == "femnist":
+        _, _, w = _femnist_arrays(data_dir)
+        idx = np.flatnonzero(np.isin(w, femnist_test_writers(int(w.max()) + 1)))
+        x, y = _femnist_tensors(data_dir, idx)
+    else:
+        x, y = _load_split(data_dir, False)
     return DataLoader(TensorDataset(x, y), batch_size=batch_size)
 
 
