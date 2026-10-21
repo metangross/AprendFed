@@ -31,6 +31,7 @@ DEFAULT=fedavg,leanfed,leanfed-c,leanfed-c-mdf0.3
 declare -A DATA=(
   [cifar10]="dataset='cifar10' partitioning='dirichlet' dirichlet-alpha=0.1"
   [femnist]="dataset='femnist' partitioning='writer'"
+  [femnist-dirichlet]="dataset='femnist' partitioning='dirichlet' dirichlet-alpha=0.1"
 )
 
 names=$DEFAULT
