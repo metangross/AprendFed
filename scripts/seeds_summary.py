@@ -5,6 +5,7 @@ Uso:
     python3 scripts/seeds_summary.py                # setup da run mais recente
     python3 scripts/seeds_summary.py --ref 10494    # setup de outra run
     python3 scripts/seeds_summary.py -o graficos/seeds
+    python3 scripts/seeds_summary.py --last 5      # média das 5 últimas rodadas
 
 Entram as runs com o mesmo setup da run de referência: run_config igual (fora a
 seed e as chaves de VARIANT) e as mesmas baterias iniciais e redes por cliente.
@@ -14,6 +15,10 @@ config com a mesma seed dá o mesmo resultado.
 
 Grava resumo_seeds.csv (uma linha por variante) e runs_seeds.csv (uma por run)
 em graficos/seeds/ (ou -o). O desvio é o amostral (n − 1).
+
+A acurácia da última rodada oscila muito com dados não-IID (depende de quais
+clientes ainda estão vivos); compare as variantes pela média das últimas
+rodadas (acuracia_ultimas, --last).
 """
 
 import argparse
@@ -33,6 +38,7 @@ LEANFED_C_ONLY = ("comm-estimate", "eta-after-download", "min-data-fraction")
 IGNORE = ("seed", "min-nodes", "data-dir", "output-dir")
 NAMES = {"none": "FedAvg", "leanfed": "LeanFed", "leanfed-c": "LeanFed-c"}
 METRICS = (  # coluna, título, formato
+    ("acuracia_ultimas", "últimas", "{:.1%}"),
     ("acuracia_final", "final", "{:.1%}"),
     ("acuracia_max", "máx", "{:.1%}"),
     ("energia_total_kj", "energia kJ", "{:.2f}"),
@@ -62,10 +68,11 @@ def setup(run: Run) -> tuple:
     return tuple(sorted(rc.items())), tuple(sorted(nodes.items()))
 
 
-def summarize(run: Run) -> dict:
+def summarize(run: Run, last: int) -> dict:
     acc = run.test_acc()
     rows = [r for rs in run.clients.values() for r in rs]
     return {
+        "acuracia_ultimas": statistics.mean(acc[r] for r in sorted(acc)[-last:]),
         "acuracia_final": acc[max(acc)],
         "acuracia_max": max(acc.values()),
         "energia_total_kj": (run.energy_by_round()[run.rounds] / 1000
@@ -88,6 +95,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--ref", help="id (ou prefixo) da run que define o setup")
     parser.add_argument("-o", "--output", type=Path, default=ROOT / "graficos" / "seeds")
+    parser.add_argument("--last", type=int, default=3,
+                        help="rodadas finais na média de acuracia_ultimas (padrão 3)")
     args = parser.parse_args()
 
     ref = Run(find_run(args.ref))
@@ -101,6 +110,7 @@ def main() -> None:
             groups.setdefault(variant(run), {}).setdefault(run.rc["seed"], []).append(run)
 
     print(f"Setup de {ref.subtitle()}")
+    print(f"últimas = acurácia média das {args.last} últimas rodadas")
     runs_rows, summary_rows = [], []
     for key, by_seed in sorted(groups.items(), key=lambda kv: variant_label(kv[0])):
         label = variant_label(key)
@@ -109,7 +119,7 @@ def main() -> None:
             runs.sort(key=lambda r: (r.dir / "metrics.json").stat().st_mtime)
             run = runs[-1]
             row = {"variante": label, "seed": seed, "run_id": run.metrics["run_id"],
-                   **summarize(run)}
+                   **summarize(run, args.last)}
             if len(runs) > 1:
                 print(f"  {label} seed {seed}: {len(runs)} runs, usando {row['run_id']}")
             per_seed.append(row)
