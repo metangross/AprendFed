@@ -90,6 +90,7 @@ def energy_summary(run_config: dict) -> dict:
         "comm_estimate": str(rc["comm-estimate"]),
         "eta_after_download": bool(rc["eta-after-download"]),
         "min_data_fraction": float(rc["min-data-fraction"]),
+        "tail_margin": float(rc["tail-margin"]),
     }
 
 

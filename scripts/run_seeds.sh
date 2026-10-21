@@ -23,6 +23,7 @@ declare -A VARIANTS=(
   [leanfed-c]="energy-policy='leanfed-c'"
   [leanfed-c-mdf0.3]="energy-policy='leanfed-c' min-data-fraction=0.3"
   [leanfed-c-mdf0.5]="energy-policy='leanfed-c' min-data-fraction=0.5"
+  [leanfed-c-tail0.9]="energy-policy='leanfed-c' tail-margin=0.9"
 )
 DEFAULT=fedavg,leanfed,leanfed-c,leanfed-c-mdf0.3
 

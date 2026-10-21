@@ -64,6 +64,8 @@ def main(grid: Grid, context: Context) -> None:
     comm_quantile(rc["comm-estimate"])  # falha já aqui se o valor for inválido
     if not 0 <= float(rc["min-data-fraction"]) <= 1:
         raise ValueError("min-data-fraction deve estar em [0, 1]")
+    if not 0 <= float(rc["tail-margin"]) < 1:
+        raise ValueError("tail-margin deve ser 0 (sem margem) ou um percentil em (0, 1)")
     if rc["energy-baseline"] not in BASELINES:
         raise ValueError(f"energy-baseline deve ser um de {tuple(BASELINES)}")
     # Lê o perfil já aqui: sem ele, falha com uma mensagem clara, e não em cada cliente.

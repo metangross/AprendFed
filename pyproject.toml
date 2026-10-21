@@ -78,5 +78,10 @@ eta-after-download = false
 # Com η abaixo disso, o cliente pula a rodada e guarda a energia para participar
 # depois com mais dados (exceto na última participação). 0 = participa com qualquer η.
 min-data-fraction = 0.0
+# Margem guardada fora do orçamento até a última participação: o percentil q da
+# comunicação + o custo fixo. Na última, o cliente usa a bateria toda e reserva a
+# comunicação pelo mesmo percentil. Evita morrer no fim por uma rodada de rede
+# ruim, quando a bateria já não tem folga. 0 = sem margem.
+tail-margin = 0.0
 data-dir = "/data"
 output-dir = "/outputs"

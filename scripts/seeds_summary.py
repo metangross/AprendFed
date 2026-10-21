@@ -32,9 +32,11 @@ from plot_run import ROOT, Run, find_run  # noqa: E402
 
 # Chaves que definem a variante, com o valor das runs anteriores a elas.
 VARIANT = {"energy-policy": "none", "comm-estimate": "mean", "eta-after-download": False,
-           "min-data-fraction": 0.0, "energy-fixed-j": 0.0}
+           "min-data-fraction": 0.0, "energy-fixed-j": 0.0, "tail-margin": 0.0}
 # Só valem para o leanfed-c; nas outras políticas não mudam nada.
 LEANFED_C_ONLY = ("comm-estimate", "eta-after-download", "min-data-fraction")
+# Valem para as políticas com orçamento (leanfed e leanfed-c), não para o FedAvg.
+BUDGET_ONLY = ("tail-margin",)
 IGNORE = ("seed", "min-nodes", "data-dir", "output-dir")
 NAMES = {"none": "FedAvg", "leanfed": "LeanFed", "leanfed-c": "LeanFed-c"}
 METRICS = (  # coluna, título, formato
@@ -52,6 +54,8 @@ def variant(run: Run) -> tuple:
     v = {k: run.rc.get(k, d) for k, d in VARIANT.items()}
     if v["energy-policy"] != "leanfed-c":
         v.update({k: VARIANT[k] for k in LEANFED_C_ONLY})
+    if v["energy-policy"] == "none":
+        v.update({k: VARIANT[k] for k in BUDGET_ONLY})
     return tuple(v.items())
 
 

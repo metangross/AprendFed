@@ -144,12 +144,19 @@ def train(msg: Message, context: Context) -> Message:
         # cliente pula uma rodada, o que não gastou aumenta o orçamento das próximas.
         left = max(1.0, float(rc["fraction-train"]) * (int(rc["num-server-rounds"])
                                                        - server_round + 1))
-        round_budget = battery / left
+        # Sem margem, o orçamento leva a bateria a zero na última participação, e
+        # uma rodada de rede ruim perto do fim mata o cliente. tail-margin guarda
+        # a cauda da comunicação até a última participação, que a reserva inteira.
+        tail = float(rc["tail-margin"])
+        last = left <= 1
+        margin = expected_comm(nc, num_params, tail) + cost.fixed if tail > 0 else 0.0
+        round_budget = battery if last else max(0.0, battery - margin) / left
         # Abaixo de min-data-fraction, a rede domina o custo: guarda a energia para
         # participar depois com mais dados. Na última participação não há depois.
-        min_k = float(rc["min-data-fraction"]) * num_examples if left > 1 else 0.0
+        min_k = float(rc["min-data-fraction"]) * num_examples if not last else 0.0
         compute = cost.per_sample * num_examples * int(rc["local-epochs"])
-        comm = expected_comm(nc, num_params, rc["comm-estimate"])
+        estimate = tail if tail > 0 and last else rc["comm-estimate"]
+        comm = expected_comm(nc, num_params, estimate)
         eta = data_fraction(str(rc["energy-policy"]), round_budget, compute, comm,
                             cost.fixed)
         k = math.floor(eta * num_examples)

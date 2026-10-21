@@ -346,6 +346,21 @@ rodada seguinte para usar a energia guardada.
 ./run.sh -n 15 -b 1500,1000,500 -c "energy=true energy-policy='leanfed-c'"
 ```
 
+O orçamento leva a bateria a zero na última participação. No meio do treino,
+uma rodada de rede ruim (vazão perto de 1 Mbps custa até ~100 J a 25 Mbps) é
+absorvida pela bateria que sobra; perto do fim, não há folga e o cliente morre,
+levando as classes que só ele tem. Com `tail-margin` (ex.: `0.9`), o cliente
+guarda fora do orçamento o percentil q da comunicação mais o custo fixo
+(51,8 J com q = 0,9 a 25 Mbps) e só usa essa margem na última participação, em
+que reserva a comunicação pelo mesmo percentil. Nos testes (3 seeds), a margem
+zera as mortes, mas não muda a acurácia: depois de uma rodada de rede ruim no
+fim, o cliente pula as últimas rodadas em vez de morrer, e o modelo final perde
+as classes dele do mesmo jeito.
+
+```bash
+./run.sh -c "energy=true energy-policy='leanfed-c' tail-margin=0.9"
+```
+
 Cada rodada desconta, nesta ordem, o custo fixo e o download, a computação
 (batch a batch, dentro do `train()`) e o upload. Um cliente sem bateria responde
 com o erro `BATTERY_DEPLETED` (101) no treino e na avaliação. A avaliação não
