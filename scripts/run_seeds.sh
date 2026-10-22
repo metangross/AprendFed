@@ -8,6 +8,7 @@
 #   ./scripts/run_seeds.sh 42 43 44
 #   ./scripts/run_seeds.sh -v fedavg,leanfed,leanfed-c -x "energy-fixed-j=5.0" 42 43 44
 #   ./scripts/run_seeds.sh -d femnist -v fedavg,leanfed,leanfed-c 42 43 44
+#   ./scripts/run_seeds.sh -d cifar10-a0.3 -v fedavg,leanfed-c 42 43 44
 #   nohup ./scripts/run_seeds.sh > /dev/null 2>&1 &   # sobrevive ao terminal
 #
 # -v: variantes (nomes de VARIANTS, separados por vírgula; padrão DEFAULT)
@@ -30,6 +31,9 @@ declare -A VARIANTS=(
 DEFAULT=fedavg,leanfed,leanfed-c,leanfed-c-mdf0.3
 declare -A DATA=(
   [cifar10]="dataset='cifar10' partitioning='dirichlet' dirichlet-alpha=0.1"
+  [cifar10-a0.05]="dataset='cifar10' partitioning='dirichlet' dirichlet-alpha=0.05"
+  [cifar10-a0.3]="dataset='cifar10' partitioning='dirichlet' dirichlet-alpha=0.3"
+  [cifar10-a1.0]="dataset='cifar10' partitioning='dirichlet' dirichlet-alpha=1.0"
   [femnist]="dataset='femnist' partitioning='writer'"
   [femnist-dirichlet]="dataset='femnist' partitioning='dirichlet' dirichlet-alpha=0.1"
 )
