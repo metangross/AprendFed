@@ -93,6 +93,21 @@ def summarize(run: Run, last: int) -> dict:
     }
 
 
+def setup_runs(want: tuple) -> dict[tuple, dict[int, list[Run]]]:
+    """Runs com o setup `want`, por variante e seed, da mais antiga à mais recente."""
+    groups: dict[tuple, dict[int, list[Run]]] = {}
+    for d in sorted((ROOT / "outputs").glob("run-*")):
+        if not (d / "metrics.json").exists():
+            continue
+        run = Run(d)
+        if setup(run) == want:
+            groups.setdefault(variant(run), {}).setdefault(run.rc["seed"], []).append(run)
+    for by_seed in groups.values():
+        for runs in by_seed.values():
+            runs.sort(key=lambda r: (r.dir / "metrics.json").stat().st_mtime)
+    return groups
+
+
 def mean_std(values: list) -> tuple[float | None, float | None]:
     values = [v for v in values if v is not None]
     if not values:
@@ -109,14 +124,7 @@ def main() -> None:
     args = parser.parse_args()
 
     ref = Run(find_run(args.ref))
-    want = setup(ref)
-    groups: dict[tuple, dict[int, list[Run]]] = {}
-    for d in sorted((ROOT / "outputs").glob("run-*")):
-        if not (d / "metrics.json").exists():
-            continue
-        run = Run(d)
-        if setup(run) == want:
-            groups.setdefault(variant(run), {}).setdefault(run.rc["seed"], []).append(run)
+    groups = setup_runs(setup(ref))
 
     print(f"Setup de {ref.subtitle()}")
     print(f"últimas = acurácia média das {args.last} últimas rodadas")
@@ -125,7 +133,6 @@ def main() -> None:
         label = variant_label(key)
         per_seed = []
         for seed, runs in sorted(by_seed.items()):
-            runs.sort(key=lambda r: (r.dir / "metrics.json").stat().st_mtime)
             run = runs[-1]
             row = {"variante": label, "seed": seed, "run_id": run.metrics["run_id"],
                    **summarize(run, args.last)}
