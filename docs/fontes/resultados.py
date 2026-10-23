@@ -468,7 +468,7 @@ def build() -> list:
         P("LeanFed-c contra FedAvg com bateria limitada: o que os experimentos mostram",
           "sub"),
         P("Até 23 de outubro de 2026 — CIFAR-10 com 8 seeds, FEMNIST com 3 — branch "
-          "<i>leanfed-baseline</i> (commit 851ac0d)",
+          "<i>leanfed-baseline</i> (commit 07036bf)",
           "sub"),
         Spacer(1, 12),
         note("<b>Resumo.</b> Com bateria simulada e custo de comunicação realista, o "
