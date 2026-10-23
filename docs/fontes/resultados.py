@@ -483,9 +483,11 @@ def build() -> list:
              "(<b>fração mínima 0,5</b>) melhora o LeanFed-c <b>nos quatro α</b>, de +7,3 "
              "pontos (α = 0,05) a +0,5 (α = 1,0): sobre o FedAvg, ganha +16,3, +6,8 e +1,6 "
              "de α = 0,05 a α = 0,3 e empata com α = 1,0, onde o LeanFed-c sozinho perdia. "
-             "Funciona porque os clientes de bateria pequena pulam o começo do treino e "
-             "chegam ao fim com energia para treinar todos os dados; quanto maior a fração "
-             "mínima, mais forte o efeito (com 1,0, +8,5 sobre o FedAvg em α = 0,1). Entre "
+             "Com ela, os clientes de bateria pequena pulam o começo do treino e chegam ao "
+             "fim com energia para treinar todos os dados; quanto maior a fração mínima, "
+             "maior o ganho (com 1,0, +8,5 sobre o FedAvg em α = 0,1). Esse ganho extra se "
+             "espalha por todas as classes, e não só pelas desses clientes, e sobe "
+             "sobretudo a pior classe; a causa ainda está em aberto. Entre "
              "cenários, o ganho acompanha a fração de classes concentradas nos clientes que "
              "o FedAvg perde por falta de bateria, e não a quantidade de dados que esses "
              "clientes levam; seed a seed, essa fração não prevê o ganho."),
@@ -656,7 +658,7 @@ def build() -> list:
           "ponto, não significativo). A vantagem dele sobre o FedAvg sobe para "
           "<b>+6,3 pontos</b> (IC 95% de +0,8 a +11,8; 6 de 8 seeds). Com 3 seeds, parecia "
           "de 10."),
-        H2("Por que a fração mínima funciona"),
+        H2("O que a fração mínima muda na participação"),
         P("Os logs dos clientes mostram quando os 5 clientes de 500 J treinam (α = 0,1, "
           "média das 8 seeds). Os de 1000 e 1500 J participam de quase todas as rodadas em "
           "todas as políticas."),
@@ -677,11 +679,46 @@ def build() -> list:
             "eles. O LeanFed-c os mantém vivos, mas cada um treina pouco por rodada (no "
             "fim, 3,8 mil exemplos somados entre os 5).",
             "Com a fração mínima, esses clientes pulam o começo, acumulam energia e treinam "
-            "quase todos os dados nas últimas rodadas. As classes deles pesam mais nos "
-            "modelos dessas rodadas, que são os que a métrica mede. Quanto maior o mínimo, mais a "
+            "quase todos os dados nas últimas rodadas. Quanto maior o mínimo, mais a "
             "participação se concentra no fim, na mesma ordem do ganho da tabela acima.",
-            "O mecanismo é o oposto de fazer os clientes frágeis contribuírem mais cedo: "
-            "a fração mínima ganha porque eles contribuem <b>tarde</b>, e com mais dados.",
+            "É o oposto de fazer os clientes frágeis contribuírem mais cedo: com a fração "
+            "mínima, eles contribuem <b>tarde</b>, e com mais dados.",
+        ]),
+        H2("Acurácia por classe: o ganho não fica nas classes desses clientes"),
+        P("Para ver se o ganho vem das classes dos clientes de 500 J, o modelo final de "
+          "cada run foi avaliado por classe no teste do CIFAR-10 (α = 0,1, 8 seeds). "
+          "\"Classes dos clientes de 500 J\" são as que têm mais da metade dos exemplos de "
+          "treino nesses clientes: de 2 a 4 por seed, 29% do total. Só existe o modelo da "
+          "rodada 20, a da queda em todas as curvas, por isso a acurácia global é um pouco "
+          "menor que a média das 3 últimas rodadas."),
+        table(
+            ["α = 0,1, rodada 20", "Global", "Classes dos clientes de 500 J",
+             "Outras classes", "Pior classe"],
+            [
+                ["FedAvg", "68,8%", "68,0%", "68,7%", "21,2%"],
+                ["LeanFed-c", "73,2%", "75,1%", "72,4%", "32,8%"],
+                ["fração mínima 0,5", "75,2%", "77,1%", "74,2%", "39,6%"],
+                ["fração mínima 0,7", "76,0%", "81,3%", "73,6%", "40,0%"],
+                ["fração mínima 1,0", "78,6%", "80,1%", "77,3%", "46,2%"],
+            ],
+            [1.6, 0.9, 1.5, 1.1, 1.0],
+        ),
+        bullets([
+            "<b>O ganho sobre o LeanFed-c se espalha.</b> A fração mínima 0,5 sobe +2,0 "
+            "pontos nas classes dos clientes de 500 J e +1,9 nas outras. Essas classes "
+            "levam 37% do ganho, quase a parte delas no total (29%), e a correlação entre o "
+            "ganho de cada classe e a parte dela nesses clientes é fraca (Spearman +0,07 em "
+            "média por seed; +0,15 com a fração 1,0), sem significância. Com α = 0,05 há "
+            "alguma concentração (62% do ganho em 31% das classes), com intervalo largo.",
+            "<b>A pior classe é a que mais sobe.</b> Com a fração 1,0, +13,5 pontos sobre o "
+            "LeanFed-c (IC 95% de +5,3 a +21,6; 7 de 8 seeds) e +25,0 sobre o FedAvg (+8,5 a "
+            "+41,5), contra +5,4 e +9,8 na acurácia global. Com a fração 0,5, +6,8 sobre o "
+            "LeanFed-c, sem significância.",
+            "<b>A causa do ganho continua em aberto.</b> A participação dos clientes de "
+            "500 J muda como a tabela anterior mostra, mas o ganho não fica nas classes "
+            "deles. Duas hipóteses ainda não testadas: no fim, entram mais exemplos por "
+            "rodada no total, ou as atualizações treinadas com poucos dados do LeanFed-c "
+            "atrapalham o modelo global.",
         ]),
         H2("A fração mínima 0,5 nos outros α"),
         table(
@@ -745,6 +782,12 @@ def build() -> list:
             "classes estão concentradas nos clientes que saem. Com α = 0,3, ele perde 45% "
             "dos dados e 5% das classes, e o ganho do LeanFed-c é de 0,6 ponto, sem "
             "significância (IC 95% de −0,3 a +1,5).",
+            "<b>A acurácia por classe confirma.</b> No modelo da rodada 20 com α = 0,1, "
+            "74% do ganho do LeanFed-c sobre o FedAvg (87% do da fração mínima 0,5) está "
+            "nas classes concentradas nos clientes que o FedAvg perde, que são 32% das "
+            "classes. Nelas, o FedAvg acerta 54,8%, o LeanFed-c 67,2% e a fração 0,5 "
+            "72,1%; nas outras, os três ficam entre 75% e 77%. Com α = 0,05, 93% do ganho "
+            "do LeanFed-c está em 39% das classes.",
             "<b>O resultado se repete no mesmo dataset.</b> A comparação entre CIFAR-10 e "
             "FEMNIST mudava o dataset junto com a partição. A varredura do α muda só a "
             "concentração e reproduz a mesma relação: +9,1, +4,3, +0,6 e −0,4 pontos de "
@@ -782,7 +825,9 @@ def build() -> list:
             "6 de 8, p = 0,055). No FEMNIST com Dirichlet, +1,6 com 3 seeds. Sem essa "
             "concentração, ele empata com o FedAvg ou fica até 0,4 ponto abaixo.",
             "O ganho do LeanFed-c vem de manter os clientes de bateria pequena, e as "
-            "classes deles, até o fim do treino; o pico de acurácia não melhora.",
+            "classes deles, até o fim do treino: a acurácia por classe mostra que três "
+            "quartos do ganho estão nas classes que o FedAvg perde. O pico de acurácia não "
+            "melhora.",
             "A fração mínima 0,5 melhora o LeanFed-c nos quatro α do CIFAR-10 (+7,3 a +0,5 "
             "pontos) e o deixa à frente do FedAvg em α = 0,05, 0,1 e 0,3 (+16,3, +6,8 e "
             "+1,6), empatado em α = 1,0, com pico maior ou igual em todos. É a melhor "
@@ -790,7 +835,9 @@ def build() -> list:
             "O ganho da fração mínima vem de pular rodadas, e não de treinar uma fração "
             "dos dados: os clientes de bateria pequena guardam energia no começo e treinam "
             "todos os dados no fim. No α = 0,1, \"treina tudo ou pula\" (fração 1,0) é a "
-            "melhor variante (+4,1 sobre o LeanFed-c, +8,5 sobre o FedAvg).",
+            "melhor variante (+4,1 sobre o LeanFed-c, +8,5 sobre o FedAvg). O ganho sobre o "
+            "LeanFed-c se espalha pelas classes, e a pior classe sobe mais que a média "
+            "(+13,5 com a fração 1,0).",
             "Para comparar políticas, usar a média das últimas rodadas e várias seeds; a "
             "acurácia de uma rodada e de uma seed é ruído. Três seeds não bastam: no "
             "α = 0,1, as seeds 42 a 44 deram o dobro do ganho do LeanFed-c medido com 8, e "
@@ -802,10 +849,10 @@ def build() -> list:
             "O FEMNIST tem só 3 seeds (42 a 44) e nenhuma variante do LeanFed-c. A fração "
             "mínima 0,5 tem os quatro α do CIFAR-10; as frações 0,3, 0,7 e 1,0, a margem de "
             "cauda e D = 5 só o α = 0,1.",
-            "A métrica é a média das 3 últimas rodadas, e a fração mínima ganha justamente "
-            "concentrando os clientes frágeis no fim. Ainda não foi medido se o modelo "
-            "dessas rodadas também é melhor em métricas que não dependem do momento de "
-            "parada, como a acurácia por classe ou o pior caso entre classes.",
+            "Não se sabe por que a fração mínima melhora o LeanFed-c: o ganho não fica nas "
+            "classes dos clientes de 500 J. A acurácia por classe só foi medida no modelo "
+            "da rodada 20, porque os das outras rodadas não são salvos, e não se sabe se o "
+            "ganho depende de parar o treino na rodada 20.",
             "A fração de classes concentradas explica a diferença entre cenários, mas não "
             "entre seeds do mesmo cenário: falta uma medida que preveja quando o FedAvg "
             "realmente degrada no fim.",
@@ -820,10 +867,11 @@ def build() -> list:
         H2("Próximos passos"),
         bullets([
             "Testar a fração mínima 0,5 no FEMNIST e repetir o FEMNIST nas seeds 45 a 49.",
-            "Comparar a acurácia por classe com e sem a fração mínima, para confirmar que o "
-            "ganho vem das classes dos clientes de 500 J.",
+            "Descobrir de onde vem o ganho da fração mínima sobre o LeanFed-c: comparar o "
+            "total de exemplos agregados por rodada e testar se as atualizações treinadas "
+            "com poucos dados atrapalham o modelo global.",
             "Entender os casos em que o FedAvg perde classes e não degrada (seed 45 com "
-            "α = 0,1), olhando a acurácia por classe.",
+            "α = 0,1), com a acurácia por classe (<i>scripts/class_accuracy.py</i>).",
             "Reavaliar a ideia de fazer os clientes frágeis contribuírem mais cedo: a "
             "fração mínima ganha fazendo o contrário.",
             "Variar o setup (faixas de rede, baterias, potência por cliente) para ver se a "
@@ -931,6 +979,9 @@ def build() -> list:
 python3 scripts/seeds_summary.py --ref 1977  -o graficos/seeds         # α = 0,1 e variantes
 python3 scripts/seeds_summary.py --ref 11428 -o graficos/seeds-alfa-0.3
 python3 scripts/class_loss.py    --ref 11428 -o graficos/seeds-alfa-0.3
+# acurácia por classe do final_model.pt e parte de cada classe por bateria (na CPU)
+docker run --rm -v aprendfed_data:/data:ro -v "$PWD":/app:ro aprendfed:latest \\
+    python scripts/class_accuracy.py outputs/run-<id>-<data> ...
 # Figura 3 a partir dos perda_classes.csv
 python3 scripts/plot_gain_classes.py --ext pdf
 """),
