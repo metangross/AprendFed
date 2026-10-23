@@ -28,7 +28,7 @@ from matplotlib.ticker import MultipleLocator, PercentFormatter  # noqa: E402
 # Pasta em graficos/, dataset, rótulo do setup, deslocamento vertical do rótulo (pt).
 SETUPS = (
     ("seeds-alfa-0.05", "CIFAR-10", "α = 0,05", 0),
-    ("seeds", "CIFAR-10", "α = 0,1", 0),
+    ("seeds", "CIFAR-10", "α = 0,1", -8),  # à direita há uma seed (40%, +4,4)
     ("seeds-alfa-0.3", "CIFAR-10", "α = 0,3", 0),
     ("seeds-alfa-1.0", "CIFAR-10", "α = 1,0", 7),  # as médias de α = 1,0 e escritor
     ("seeds-femnist-dirichlet", "FEMNIST", "Dirichlet α = 0,1", 0),
@@ -55,7 +55,7 @@ def main() -> None:
 
     fig, gs = new_figure(
         7.5, 4.2, "O ganho do leanfed-c acompanha as classes que o FedAvg perde",
-        ["Cada ponto pequeno é uma seed (42, 43, 44); o grande, a média do setup.",
+        ["Cada ponto pequeno é uma seed (42 a 49 no CIFAR-10, 42 a 44 no FEMNIST); o grande, a média do setup.",
          "Ganho = acurácia média das 3 últimas rodadas, pareada por seed.",
          "Perdido = cliente que não contribuiu em nenhuma das 3 últimas rodadas do FedAvg."])
     ax = fig.add_subplot(gs[0])
