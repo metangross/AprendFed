@@ -5,6 +5,7 @@ Uso:
     python3 scripts/class_loss.py                   # setup da run mais recente
     python3 scripts/class_loss.py --ref 1977 -o graficos/seeds
     python3 scripts/class_loss.py --threshold 0.5
+    python3 scripts/class_loss.py --bn              # acurácia com a BN recalibrada
 
 Um cliente está perdido se não contribuiu (ok/partial) em nenhuma das --last
 últimas rodadas, as mesmas da acuracia_ultimas do seeds_summary.py. Para cada
@@ -12,6 +13,7 @@ run do setup (escolhidas como no seeds_summary.py), mede a fração dos exemplos
 de treino que estão nos clientes perdidos e a fração das classes com mais de
 --threshold dos seus exemplos neles. O ganho é a acuracia_ultimas menos a do
 FedAvg com a mesma seed e os mesmos parâmetros que valem para ele (ex.: custo fixo).
+Com --bn, a acurácia vem do test_acc_bn, como no seeds_summary.py --bn.
 
 A contagem de classes por cliente precisa dos dados, que estão no volume do
 Docker: o script roda o partition_counts.py no container (sem GPU).
@@ -66,11 +68,15 @@ def main() -> None:
                         help="rodadas finais em que o cliente precisa contribuir (padrão 3)")
     parser.add_argument("--threshold", type=float, default=0.8,
                         help="fração dos exemplos de uma classe nos perdidos (padrão 0,8)")
+    parser.add_argument("--bn", action="store_true",
+                        help="acurácia com a BatchNorm recalibrada (test_acc_bn)")
     args = parser.parse_args()
 
+    metric = "test_acc_bn" if args.bn else "test_acc"
     ref = Run(find_run(args.ref))
     runs = [(key, seed, by_seed[seed][-1])
-            for key, by_seed in setup_runs(setup(ref)).items() for seed in sorted(by_seed)]
+            for key, by_seed in setup_runs(setup(ref), metric).items()
+            for seed in sorted(by_seed)]
     if not runs:
         sys.exit("Nenhuma run com esse setup.")
     # A partição só depende da seed (e do setup): um container conta todas.
@@ -87,7 +93,7 @@ def main() -> None:
         rows.append({"variante": variant_label(key), "base": variant_label(fedavg_key(key)),
                      "seed": seed,
                      "run_id": run.metrics["run_id"],
-                     "acuracia_ultimas": summarize(run, args.last)["acuracia_ultimas"],
+                     "acuracia_ultimas": summarize(run, args.last, metric)["acuracia_ultimas"],
                      "clientes_perdidos": " ".join(map(str, lost)),
                      "dados_perdidos": c[lost].sum() / c.sum(),
                      "classes_concentradas": float(np.mean(share > args.threshold)),

@@ -3,11 +3,15 @@
 
 Roda no container, que tem os dados (sem GPU, a avaliação é leve):
     docker run --rm -v aprendfed_data:/data:ro -v "$PWD":/app:ro aprendfed:latest \
-        python scripts/class_accuracy.py outputs/run-<id>-<data> ...
+        python scripts/class_accuracy.py [--bn] outputs/run-<id>-<data> ...
+
+Com --bn, recalibra a BatchNorm do modelo antes de avaliar, com a mesma amostra
+dos dados dos clientes que o servidor usa no test_acc_bn (bn-recalibrate=true).
 
 Para cada run imprime, em JSON:
   - acc: acurácia no teste de cada classe, com o final_model.pt (rodada final);
-  - acc_check: acurácia global recalculada e a do metrics.json na mesma rodada;
+  - acc_check: acurácia global recalculada e a do metrics.json na mesma rodada
+    (test_acc_bn com --bn);
   - share: fração dos exemplos de treino de cada classe nos clientes de cada
     bateria inicial (lida do primeiro registro de treino de cada cliente).
 """
@@ -23,7 +27,8 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from partition_counts import counts  # noqa: E402
 
-from fedavg_app.task import NUM_CLASSES, get_model, load_centralized_test  # noqa: E402
+from fedavg_app.task import (NUM_CLASSES, get_model, load_calibration,  # noqa: E402
+                             load_centralized_test, recalibrate_bn)
 
 DATA_DIR = "/data"
 
@@ -52,9 +57,11 @@ def class_accuracy(net, loader, num_classes: int) -> tuple[np.ndarray, float]:
 
 def main() -> None:
     torch.set_num_threads(8)
+    args = sys.argv[1:]
+    bn = "--bn" in args
     loaders = {}
     results = []
-    for arg in sys.argv[1:]:
+    for arg in (a for a in args if a != "--bn"):
         run_dir = Path(arg)
         m = json.loads((run_dir / "metrics.json").read_text())
         rc = m["run_config"]
@@ -64,6 +71,11 @@ def main() -> None:
             loaders[dataset] = load_centralized_test(DATA_DIR, dataset=dataset)
         net = get_model(str(rc["model"]), False, int(rc["image-size"]), dataset)
         net.load_state_dict(torch.load(run_dir / "final_model.pt", map_location="cpu"))
+        if bn:
+            recalibrate_bn(net, load_calibration(
+                DATA_DIR, int(rc["min-nodes"]), str(rc["partitioning"]),
+                float(rc["dirichlet-alpha"]), int(rc["seed"]), dataset,
+                int(rc.get("writers-per-client", 12))), torch.device("cpu"))
         acc, overall = class_accuracy(net, loaders[dataset], nc)
 
         battery = initial_battery(run_dir)
@@ -79,7 +91,7 @@ def main() -> None:
         results.append({
             "run_id": m["run_id"], "seed": rc["seed"],
             "acc": acc.tolist(),
-            "acc_check": [float(overall), m["evaluate_server"][last]["test_acc"]],
+            "acc_check": [float(overall), m["evaluate_server"][last]["test_acc_bn" if bn else "test_acc"]],
             "share": {str(int(b)): (v / np.maximum(totals, 1)).tolist()
                       for b, v in sorted(by_tier.items())},
         })
