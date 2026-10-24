@@ -143,8 +143,8 @@ class Run:
             if self.has_energy else {}
         )
 
-    def test_acc(self) -> dict[int, float]:
-        return {int(k): v["test_acc"] for k, v in self.metrics["evaluate_server"].items()}
+    def test_acc(self, key: str = "test_acc") -> dict[int, float]:
+        return {int(k): v[key] for k, v in self.metrics["evaluate_server"].items()}
 
     def energy_by_round(self) -> dict[int, float]:
         """Energia acumulada de todos os clientes até o fim de cada rodada (J)."""

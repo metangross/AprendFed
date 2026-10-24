@@ -21,7 +21,9 @@ from fedavg_app.task import (
     DATASETS,
     get_device,
     get_model,
+    load_calibration,
     load_centralized_test,
+    recalibrate_bn,
     set_seed,
     test,
 )
@@ -89,12 +91,22 @@ def main(grid: Grid, context: Context) -> None:
                          str(rc["dataset"]))
 
     testloader = load_centralized_test(data_dir, dataset=str(rc["dataset"]))
+    # Partições 0..min-nodes−1: o run.sh põe min-nodes = número de clientes.
+    calibloader = (load_calibration(
+        data_dir, int(rc["min-nodes"]), str(rc["partitioning"]),
+        float(rc["dirichlet-alpha"]), int(rc["seed"]), str(rc["dataset"]),
+        int(rc["writers-per-client"])) if rc["bn-recalibrate"] else None)
 
     def central_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord:
         net = new_model()
         net.load_state_dict(arrays.to_torch_state_dict())
         loss, acc = test(net, testloader, device)
-        return MetricRecord({"test_loss": loss, "test_acc": acc})
+        metrics = {"test_loss": loss, "test_acc": acc}
+        if calibloader is not None:
+            # Depois da avaliação original, que continua igual às runs antigas.
+            recalibrate_bn(net, calibloader, device)
+            metrics["test_loss_bn"], metrics["test_acc_bn"] = test(net, testloader, device)
+        return MetricRecord(metrics)
 
     min_nodes = int(rc["min-nodes"])
     strategy = OrderedFedAvg(

@@ -310,6 +310,28 @@ def load_centralized_test(data_dir: str, batch_size: int = 512,
     return DataLoader(TensorDataset(x, y), batch_size=batch_size)
 
 
+def load_calibration(data_dir: str, num_partitions: int, method: str, alpha: float,
+                     seed: int, dataset: str = "cifar10", writers_per_client: int = 12,
+                     size: int = 2048, batch_size: int = 64) -> DataLoader:
+    """Amostra fixa (pela seed) dos dados dos clientes, para recalibrar a BatchNorm.
+
+    No CIFAR-10 os clientes dividem o treino inteiro; no FEMNIST, as amostras dos
+    escritores sorteados para eles. Não usa o teste.
+    """
+    if dataset == "femnist":
+        pool = np.concatenate(femnist_partitions(data_dir, num_partitions, method, alpha,
+                                                 seed, writers_per_client))
+        idx = np.random.default_rng(seed).choice(pool, size=min(size, len(pool)),
+                                                 replace=False)
+        x, y = _femnist_tensors(data_dir, np.sort(idx))
+    else:
+        x, y = _load_split(data_dir, True)
+        idx = np.random.default_rng(seed).choice(len(y), size=min(size, len(y)),
+                                                 replace=False)
+        x, y = x[idx], y[idx]
+    return DataLoader(TensorDataset(x, y), batch_size=batch_size)
+
+
 # --------------------------------------------------------------------------- #
 # Treino / avaliação
 # --------------------------------------------------------------------------- #
@@ -401,3 +423,22 @@ def test(net: nn.Module, loader: DataLoader, device: torch.device) -> tuple[floa
         correct += (out.argmax(1) == yb).sum().item()
         total += len(yb)
     return loss / max(total, 1), correct / max(total, 1)
+
+
+@torch.no_grad()
+def recalibrate_bn(net: nn.Module, loader: DataLoader, device: torch.device) -> None:
+    """Refaz running_mean/var da BatchNorm com os pesos atuais (os pesos não mudam).
+
+    A média dos buffers feita pela FedAvg vem dos modelos locais e ignora a
+    dispersão entre clientes; com dados não-IID, às vezes derruba a acurácia do
+    modelo global para perto do acaso numa rodada.
+    """
+    net.to(device).eval()  # só a BN em modo de treino: o dropout fica desligado
+    bns = [m for m in net.modules() if isinstance(m, nn.modules.batchnorm._BatchNorm)]
+    for m in bns:
+        m.reset_running_stats()
+        m.momentum = None  # média cumulativa sobre os batches, não móvel
+        m.train()
+    for xb, _ in loader:
+        net(xb.to(device, non_blocking=True))
+    net.eval()

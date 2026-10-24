@@ -87,5 +87,8 @@ min-data-fraction = 0.0
 # comunicação pelo mesmo percentil. Evita morrer no fim por uma rodada de rede
 # ruim, quando a bateria já não tem folga. 0 = sem margem.
 tail-margin = 0.0
+# Avalia também com a BatchNorm recalibrada numa amostra dos dados dos clientes
+# (test_acc_bn, além do test_acc de sempre). Só muda a medição, não o treino.
+bn-recalibrate = false
 data-dir = "/data"
 output-dir = "/outputs"

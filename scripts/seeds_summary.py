@@ -6,6 +6,7 @@ Uso:
     python3 scripts/seeds_summary.py --ref 10494    # setup de outra run
     python3 scripts/seeds_summary.py -o graficos/seeds
     python3 scripts/seeds_summary.py --last 5      # média das 5 últimas rodadas
+    python3 scripts/seeds_summary.py --bn          # acurácia com a BN recalibrada
 
 Entram as runs com o mesmo setup da run de referência: run_config igual (fora a
 seed e as chaves de VARIANT) e as mesmas baterias iniciais e redes por cliente.
@@ -19,6 +20,10 @@ em graficos/seeds/ (ou -o). O desvio é o amostral (n − 1).
 A acurácia da última rodada oscila muito com dados não-IID (depende de quais
 clientes ainda estão vivos); compare as variantes pela média das últimas
 rodadas (acuracia_ultimas, --last).
+
+Com --bn, as acurácias vêm do test_acc_bn (BatchNorm recalibrada, runs com
+bn-recalibrate=true); as runs sem ele ficam de fora. bn-recalibrate só muda a
+medição, então não separa setups: sem --bn, runs com e sem ele se juntam.
 """
 
 import argparse
@@ -37,7 +42,7 @@ VARIANT = {"energy-policy": "none", "comm-estimate": "mean", "eta-after-download
 LEANFED_C_ONLY = ("comm-estimate", "eta-after-download", "min-data-fraction")
 # Valem para as políticas com orçamento (leanfed e leanfed-c), não para o FedAvg.
 BUDGET_ONLY = ("tail-margin",)
-IGNORE = ("seed", "min-nodes", "data-dir", "output-dir")
+IGNORE = ("seed", "min-nodes", "data-dir", "output-dir", "bn-recalibrate")
 # Chaves de setup que as runs anteriores a elas não têm, com o valor que tinham.
 SETUP_DEFAULTS = {"dataset": "cifar10"}
 NAMES = {"none": "FedAvg", "leanfed": "LeanFed", "leanfed-c": "LeanFed-c"}
@@ -77,8 +82,8 @@ def setup(run: Run) -> tuple:
     return tuple(sorted(rc.items())), tuple(sorted(nodes.items()))
 
 
-def summarize(run: Run, last: int) -> dict:
-    acc = run.test_acc()
+def summarize(run: Run, last: int, metric: str) -> dict:
+    acc = run.test_acc(metric)
     rows = [r for rs in run.clients.values() for r in rs]
     return {
         "acuracia_ultimas": statistics.mean(acc[r] for r in sorted(acc)[-last:]),
@@ -93,14 +98,15 @@ def summarize(run: Run, last: int) -> dict:
     }
 
 
-def setup_runs(want: tuple) -> dict[tuple, dict[int, list[Run]]]:
-    """Runs com o setup `want`, por variante e seed, da mais antiga à mais recente."""
+def setup_runs(want: tuple, metric: str) -> dict[tuple, dict[int, list[Run]]]:
+    """Runs com o setup `want` e a métrica `metric`, por variante e seed, da mais
+    antiga à mais recente."""
     groups: dict[tuple, dict[int, list[Run]]] = {}
     for d in sorted((ROOT / "outputs").glob("run-*")):
         if not (d / "metrics.json").exists():
             continue
         run = Run(d)
-        if setup(run) == want:
+        if setup(run) == want and metric in run.metrics["evaluate_server"]["0"]:
             groups.setdefault(variant(run), {}).setdefault(run.rc["seed"], []).append(run)
     for by_seed in groups.values():
         for runs in by_seed.values():
@@ -121,13 +127,17 @@ def main() -> None:
     parser.add_argument("-o", "--output", type=Path, default=ROOT / "graficos" / "seeds")
     parser.add_argument("--last", type=int, default=3,
                         help="rodadas finais na média de acuracia_ultimas (padrão 3)")
+    parser.add_argument("--bn", action="store_true",
+                        help="acurácia com a BatchNorm recalibrada (test_acc_bn)")
     args = parser.parse_args()
 
+    metric = "test_acc_bn" if args.bn else "test_acc"
     ref = Run(find_run(args.ref))
-    groups = setup_runs(setup(ref))
+    groups = setup_runs(setup(ref), metric)
 
     print(f"Setup de {ref.subtitle()}")
-    print(f"últimas = acurácia média das {args.last} últimas rodadas")
+    print(f"últimas = acurácia média das {args.last} últimas rodadas"
+          + (" (BatchNorm recalibrada)" if args.bn else ""))
     runs_rows, summary_rows = [], []
     for key, by_seed in sorted(groups.items(), key=lambda kv: variant_label(kv[0])):
         label = variant_label(key)
@@ -135,7 +145,7 @@ def main() -> None:
         for seed, runs in sorted(by_seed.items()):
             run = runs[-1]
             row = {"variante": label, "seed": seed, "run_id": run.metrics["run_id"],
-                   **summarize(run, args.last)}
+                   **summarize(run, args.last, metric)}
             if len(runs) > 1:
                 print(f"  {label} seed {seed}: {len(runs)} runs, usando {row['run_id']}")
             per_seed.append(row)
