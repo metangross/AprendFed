@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Gera docs/resultados.pdf (resultados consolidados do AprendFed até 23/10/2026).
+"""Gera docs/resultados.pdf (resultados consolidados do AprendFed até 24/10/2026).
 
 Uso:
     python3 docs/fontes/resultados.py [saida.pdf]
@@ -7,8 +7,8 @@ Uso:
 Organizado por achado; a ordem dos experimentos e o porquê de cada decisão estão
 no historico_projeto.pdf. Requer reportlab, matplotlib e as fontes DejaVu. Os
 números vêm de graficos/seeds*/runs_seeds.csv e perda_classes.csv
-(scripts/seeds_summary.py e scripts/class_loss.py); estão escritos aqui para o
-PDF não depender de outputs/, que não é versionado.
+(scripts/seeds_summary.py e scripts/class_loss.py, com --bn no FEMNIST); estão
+escritos aqui para o PDF não depender de outputs/, que não é versionado.
 """
 
 import statistics
@@ -203,7 +203,7 @@ def footer(canvas, doc):
     canvas.line(MARGIN, y + 11, A4[0] - MARGIN, y + 11)
     canvas.setFont("DejaVu", 8)
     canvas.setFillColor(GRAY)
-    canvas.drawString(MARGIN, y, "Resultados do projeto AprendFed — até 23 de outubro de 2026")
+    canvas.drawString(MARGIN, y, "Resultados do projeto AprendFed — até 24 de outubro de 2026")
     canvas.drawRightString(A4[0] - MARGIN, y, str(doc.page))
     canvas.restoreState()
 
@@ -229,8 +229,8 @@ NO_BATTERY_ACC = 0.7855  # mesma configuração sem energia (run 4158…, seed 4
 
 # Por setup: acurácia média das 3 últimas rodadas do FedAvg e do LeanFed-c, e
 # fração das classes com >80% dos exemplos nos clientes que o FedAvg perde (não
-# contribuem em nenhuma das 3 últimas rodadas). Seeds 42 a 49 no CIFAR-10, 42 a 44
-# no FEMNIST, nessa ordem.
+# contribuem em nenhuma das 3 últimas rodadas). Seeds 42 a 49, nessa ordem. No
+# FEMNIST, a acurácia é a com a BatchNorm recalibrada (test_acc_bn).
 SETUPS = {
     # nome: (dataset, rótulo curto, α no eixo da Figura 2 ou None, FedAvg, LeanFed-c, classes)
     "CIFAR-10, α = 0,05": ("CIFAR-10", "α = 0,05", 0.05,
@@ -250,10 +250,16 @@ SETUPS = {
                            (0.8752, 0.8731, 0.8671, 0.8663, 0.8823, 0.8705, 0.8741, 0.8692),
                            (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)),
     "FEMNIST, Dirichlet α = 0,1": ("FEMNIST", "Dirichlet α = 0,1", None,
-                                    (0.6727, 0.6966, 0.7137), (0.6757, 0.7354, 0.7199),
-                                    (0.2258, 0.1935, 0.1774)),
-    "FEMNIST, por escritor": ("FEMNIST", "por escritor", None, (0.8006, 0.8238, 0.8344),
-                              (0.8022, 0.7979, 0.8336), (0.0, 0.0, 0.0)),
+                                    (0.7022, 0.7654, 0.7554, 0.7809, 0.7206, 0.7497,
+                                     0.7583, 0.7469),
+                                    (0.7349, 0.7715, 0.7575, 0.7744, 0.7473, 0.7409,
+                                     0.7851, 0.7723),
+                                    (0.2258, 0.1935, 0.1774, 0.1774, 0.0968, 0.0968,
+                                     0.1290, 0.1452)),
+    "FEMNIST, por escritor": ("FEMNIST", "por escritor", None,
+                              (0.8400, 0.8446, 0.8454, 0.8451, 0.8437, 0.8446, 0.8440, 0.8502),
+                              (0.8389, 0.8451, 0.8434, 0.8417, 0.8407, 0.8455, 0.8427, 0.8469),
+                              (0.0,) * 8),
 }
 # LeanFed-c com fração mínima 0,5, acurácia média das 3 últimas rodadas, seeds 42 a 49.
 MDF05 = {
@@ -261,11 +267,14 @@ MDF05 = {
     "CIFAR-10, α = 0,1": (0.7915, 0.7251, 0.7545, 0.7977, 0.8078, 0.7623, 0.7780, 0.7653),
     "CIFAR-10, α = 0,3": (0.8646, 0.8534, 0.8671, 0.8486, 0.8620, 0.8578, 0.8581, 0.8611),
     "CIFAR-10, α = 1,0": (0.8790, 0.8790, 0.8744, 0.8713, 0.8858, 0.8733, 0.8768, 0.8796),
+    "FEMNIST, Dirichlet α = 0,1": (0.7776, 0.7877, 0.8020, 0.7990, 0.7988, 0.7541, 0.7980,
+                                   0.7823),
+    "FEMNIST, por escritor": (0.8421, 0.8487, 0.8487, 0.8447, 0.8454, 0.8478, 0.8467, 0.8511),
 }
 # Fração média dos exemplos de treino nos clientes que o FedAvg perde.
 DATA_LOST = {"CIFAR-10, α = 0,05": 0.578, "CIFAR-10, α = 0,1": 0.548,
              "CIFAR-10, α = 0,3": 0.450, "CIFAR-10, α = 1,0": 0.406,
-             "FEMNIST, Dirichlet α = 0,1": 0.417, "FEMNIST, por escritor": 0.322}
+             "FEMNIST, Dirichlet α = 0,1": 0.420, "FEMNIST, por escritor": 0.329}
 # Quantil 0,975 da t de Student por n (IC 95% do ganho pareado).
 T975 = {3: 4.303, 8: 2.365}
 
@@ -451,12 +460,14 @@ def setup_rows():
     return rows
 
 
-def mdf_rows():
+def mdf_rows(dataset):
     rows = []
     for name, mdf in MDF05.items():
-        _, label, _, fedavg, leanfed_c, _ = SETUPS[name]
-        rows.append([label.removeprefix("α = "), mean_sd(fedavg, "%"), mean_sd(leanfed_c, "%"), mean_sd(mdf, "%"),
-                     paired(mdf, leanfed_c), paired(mdf, fedavg)])
+        ds, label, _, fedavg, leanfed_c, _ = SETUPS[name]
+        if ds != dataset:
+            continue
+        rows.append([label.removeprefix("α = "), mean_sd(fedavg, "%"), mean_sd(leanfed_c, "%"),
+                     mean_sd(mdf, "%"), paired(mdf, leanfed_c), paired(mdf, fedavg)])
     return rows
 
 
@@ -467,8 +478,8 @@ def build() -> list:
         P("Resultados do AprendFed", "title"),
         P("LeanFed-c contra FedAvg com bateria limitada: o que os experimentos mostram",
           "sub"),
-        P("Até 23 de outubro de 2026 — CIFAR-10 com 8 seeds, FEMNIST com 3 — branch "
-          "<i>leanfed-baseline</i> (commit 07036bf)",
+        P("Até 24 de outubro de 2026 — CIFAR-10 e FEMNIST com 8 seeds — branch "
+          "<i>leanfed-baseline</i> (commit e0549ac)",
           "sub"),
         Spacer(1, 12),
         note("<b>Resumo.</b> Com bateria simulada e custo de comunicação realista, o "
@@ -483,6 +494,10 @@ def build() -> list:
              "(<b>fração mínima 0,5</b>) melhora o LeanFed-c <b>nos quatro α</b>, de +7,3 "
              "pontos (α = 0,05) a +0,5 (α = 1,0): sobre o FedAvg, ganha +16,3, +6,8 e +1,6 "
              "de α = 0,05 a α = 0,3 e empata com α = 1,0, onde o LeanFed-c sozinho perdia. "
+             "No FEMNIST, com a acurácia medida depois de recalibrar a BatchNorm (seção 1), "
+             "ela também é a melhor: +4,0 pontos sobre o FedAvg com Dirichlet α = 0,1 (8 de "
+             "8 seeds) e +0,2 na partição por escritor, onde os três métodos ficam a menos "
+             "de meio ponto. "
              "Com ela, os clientes de bateria pequena pulam o começo do treino e chegam ao "
              "fim com energia para treinar todos os dados; quanto maior a fração mínima, "
              "maior o ganho (com 1,0, +8,5 sobre o FedAvg em α = 0,1). Esse ganho extra se "
@@ -495,7 +510,7 @@ def build() -> list:
         bullets([
             "1. Cenário, políticas e métricas",
             "2. O LeanFed-c ganha porque não perde clientes no fim",
-            "3. Ajustes do LeanFed-c: a fração mínima ajuda em todos os α",
+            "3. Ajustes do LeanFed-c: a fração mínima ajuda em todos os cenários",
             "4. O ganho depende da concentração de classes",
             "5. Conclusões, limitações e próximos passos",
             "Apêndice A. Runs e como reproduzir",
@@ -535,18 +550,37 @@ def build() -> list:
         bullets([
             "<b>Acurácia</b>: média da acurácia no teste nas <b>3 últimas rodadas</b>. A "
             "da última rodada sozinha oscila vários pontos conforme quais clientes ainda "
-            "estão vivos.",
+            "estão vivos. No FEMNIST, medida com a BatchNorm recalibrada (abaixo).",
             "<b>Ganho</b>: acurácia do LeanFed-c menos a do FedAvg <b>com a mesma seed</b> "
             "(mesma partição e mesma sequência de vazões), com intervalo de confiança de "
             "95% pela t de Student sobre as diferenças pareadas.",
-            "<b>Seeds</b>: valores são média ± desvio amostral. No CIFAR-10, as políticas "
-            "e as variantes da seção 3 têm as seeds 42 a 49 (n = 8); o FEMNIST tem só as "
-            "seeds 42, 43 e 44 (n = 3). Diferenças entre duas variantes do LeanFed-c também "
-            "são pareadas por seed.",
+            "<b>Seeds</b>: valores são média ± desvio amostral sobre as seeds 42 a 49 "
+            "(n = 8), em todos os cenários. Diferenças entre duas variantes do LeanFed-c "
+            "também são pareadas por seed.",
             "<b>Cliente perdido</b>: não contribuiu em nenhuma das 3 últimas rodadas. "
             "<b>Classes concentradas</b>: fração das classes com mais de 80% dos seus "
             "exemplos de treino nos clientes perdidos pelo FedAvg.",
         ]),
+        H2("Avaliação no FEMNIST: BatchNorm recalibrada"),
+        P("A FedAvg tira a média das estatísticas das camadas BatchNorm (média e variância "
+          "das ativações) junto com a dos pesos. No FEMNIST não-IID, essa média não "
+          "representa os dados, e a acurácia do modelo global no teste fica subestimada e "
+          "às vezes desaba numa rodada, com todos os clientes treinando normalmente: na "
+          "rodada 1, 9% contra 33% recalibrado (FedAvg com Dirichlet, média das seeds); "
+          "das rodadas 5 a 20, 32 das 768 avaliações caem abaixo de 30%, a pior a 2,4%."),
+        P("Por isso, nas runs do FEMNIST o servidor também avalia o modelo depois de refazer "
+          "essas estatísticas com 2048 exemplos de treino dos clientes, sorteados pela seed "
+          "(sem usar o teste). Os pesos não mudam, e o modelo enviado aos clientes também "
+          "não: a recalibração só entra na medida. Com ela, a pior avaliação das rodadas 5 "
+          "a 20 fica em 57,6%, e a média das 3 últimas rodadas sobe de 5 a 16 pontos, "
+          "conforme o método. Todas as acurácias do FEMNIST neste documento são as "
+          "recalibradas."),
+        note("<b>Sem recalibrar, o FEMNIST não compara métodos.</b> O desvio entre seeds "
+             "chega a 18 pontos (contra 2 recalibrado), e a ordem muda: com Dirichlet, a "
+             "fração mínima 0,5 ficaria em último (62,7% contra 69,5% do FedAvg); por "
+             "escritor, em primeiro (78,8% contra 74,6%). No CIFAR-10, as quedas de acurácia "
+             "são reais (vêm dos clientes que saem) e recalibrar não as recupera; ele usa a "
+             "avaliação original."),
     ]
 
     # 2 ----------------------------------------------------------------
@@ -600,7 +634,7 @@ def build() -> list:
 
     # 3 ----------------------------------------------------------------
     s += [
-        H1("3. Ajustes do LeanFed-c: a fração mínima ajuda em todos os α"),
+        H1("3. Ajustes do LeanFed-c: a fração mínima ajuda em todos os cenários"),
         P("A <b>fração mínima</b> faz o cliente pular a rodada quando a fração η que cabe "
           "no orçamento fica abaixo do mínimo. A energia não gasta passa para as rodadas "
           "seguintes. Na última participação, o mínimo não vale. Com fração mínima 1,0, o "
@@ -725,7 +759,7 @@ def build() -> list:
             ["α", "FedAvg", "LeanFed-c", "Fração mínima 0,5",
              "Fração 0,5 − LeanFed-c [IC 95%], seeds melhores",
              "Fração 0,5 − FedAvg [IC 95%], seeds melhores"],
-            mdf_rows(),
+            mdf_rows("CIFAR-10"),
             [0.75, 1.2, 1.2, 1.1, 1.65, 1.75],
         ),
         bullets([
@@ -741,8 +775,29 @@ def build() -> list:
             "<b>Com α = 1,0, elimina o custo do LeanFed-c</b>: empata com o FedAvg (+0,1, "
             "4 de 8; pico 88,0% nos dois), onde o LeanFed-c ficava 0,4 ponto abaixo.",
         ]),
-        note("<b>O que só foi medido no α = 0,1.</b> As frações 0,3, 0,7 e 1,0, a margem de "
-             "cauda e o custo fixo D = 5. Nenhuma variante foi rodada no FEMNIST."),
+        H2("A fração mínima 0,5 no FEMNIST"),
+        table(
+            ["Partição", "FedAvg", "LeanFed-c", "Fração mínima 0,5",
+             "Fração 0,5 − LeanFed-c [IC 95%], seeds melhores",
+             "Fração 0,5 − FedAvg [IC 95%], seeds melhores"],
+            mdf_rows("FEMNIST"),
+            [1.0, 1.2, 1.2, 1.1, 1.6, 1.6],
+        ),
+        bullets([
+            "<b>Com Dirichlet α = 0,1, é a melhor política</b>: +2,7 pontos sobre o "
+            "LeanFed-c e +4,0 sobre o FedAvg, nas 8 seeds nos dois casos (p = 0,003 e "
+            "0,004). O LeanFed-c sozinho ganha +1,3 do FedAvg, sem significância. O pico "
+            "também sobe: 79,4% contra 77,6% do FedAvg e 76,7% do LeanFed-c.",
+            "<b>Por escritor, os três empatam na prática</b> (84,3% a 84,7%). A fração 0,5 "
+            "ainda fica à frente do FedAvg (+0,2; 7 de 8) e do LeanFed-c (+0,4; 8 de 8), e o "
+            "LeanFed-c sozinho fica 0,2 ponto abaixo do FedAvg (2 de 8), como no CIFAR-10 "
+            "com α = 1,0.",
+            "É o que se esperava antes das runs: ganho na partição Dirichlet e empate por "
+            "escritor, onde nenhuma classe fica concentrada nos clientes que o FedAvg "
+            "perde (seção 4).",
+        ]),
+        note("<b>O que só foi medido no α = 0,1 do CIFAR-10.</b> As frações 0,3, 0,7 e 1,0, "
+             "a margem de cauda e o custo fixo D = 5."),
     ]
 
     # 4 ----------------------------------------------------------------
@@ -750,7 +805,7 @@ def build() -> list:
         H1("4. O ganho depende da concentração de classes"),
         P("<b>Pergunta.</b> O LeanFed-c mantém os clientes vivos em todos os cenários. "
           "Quando isso vale acurácia? Foram testados dois tipos de cenário, cada um com "
-          "FedAvg e LeanFed-c (8 seeds no CIFAR-10, 3 no FEMNIST):"),
+          "FedAvg e LeanFed-c (8 seeds em cada):"),
         bullets([
             "<b>FEMNIST</b> (caracteres escritos à mão, 62 classes, 12 pessoas por "
             "cliente), dividido <b>por escritor</b>, que é a partição natural, ou por "
@@ -772,8 +827,8 @@ def build() -> list:
                "em todos os α."),
         figure(TMP / "ganho_classes.png", 6.3,
                "Figura 3. Ganho do LeanFed-c contra a fração de classes concentradas nos "
-               "clientes que o FedAvg perde. Cada ponto pequeno é uma seed (8 no CIFAR-10, "
-               "3 no FEMNIST); o grande, a média do cenário. CIFAR-10 preenchido, FEMNIST "
+               "clientes que o FedAvg perde. Cada ponto pequeno é uma seed (8 por "
+               "cenário); o grande, a média do cenário. CIFAR-10 preenchido, FEMNIST "
                "vazado."),
         P("<b>O que os números dizem.</b>"),
         bullets([
@@ -792,6 +847,11 @@ def build() -> list:
             "FEMNIST mudava o dataset junto com a partição. A varredura do α muda só a "
             "concentração e reproduz a mesma relação: +9,1, +4,3, +0,6 e −0,4 pontos de "
             "α = 0,05 a α = 1,0.",
+            "<b>O FEMNIST segue a mesma relação.</b> Com Dirichlet α = 0,1, 16% das classes "
+            "ficam concentradas e o ganho do LeanFed-c é de +1,3 ponto (IC 95% de −0,1 a "
+            "+2,7; 6 de 8), entre os do α = 0,1 e do α = 0,3 do CIFAR-10. Por escritor, "
+            "nenhuma classe fica concentrada e o LeanFed-c fica 0,2 ponto abaixo, como no "
+            "α = 1,0.",
             "<b>Só α = 0,05 tem ganho firme.</b> Positivo nas 8 seeds (de +0,7 a +16,6; "
             "t pareado p = 0,002). Em α = 0,1 o intervalo encosta no zero.",
             "<b>Sem concentração, o LeanFed-c custa pouco.</b> Com α = 1,0 ele fica abaixo "
@@ -822,7 +882,7 @@ def build() -> list:
             "O LeanFed-c traz ganho quando a heterogeneidade é de rótulo e as classes se "
             "concentram em clientes com bateria limitada. Com 8 seeds no CIFAR-10, o ganho "
             "é claro com α = 0,05 (+9,1 pontos, 8 de 8 seeds) e provável com α = 0,1 (+4,3, "
-            "6 de 8, p = 0,055). No FEMNIST com Dirichlet, +1,6 com 3 seeds. Sem essa "
+            "6 de 8, p = 0,055). No FEMNIST com Dirichlet, +1,3 (6 de 8, p = 0,06). Sem essa "
             "concentração, ele empata com o FedAvg ou fica até 0,4 ponto abaixo.",
             "O ganho do LeanFed-c vem de manter os clientes de bateria pequena, e as "
             "classes deles, até o fim do treino: a acurácia por classe mostra que três "
@@ -830,8 +890,9 @@ def build() -> list:
             "melhora.",
             "A fração mínima 0,5 melhora o LeanFed-c nos quatro α do CIFAR-10 (+7,3 a +0,5 "
             "pontos) e o deixa à frente do FedAvg em α = 0,05, 0,1 e 0,3 (+16,3, +6,8 e "
-            "+1,6), empatado em α = 1,0, com pico maior ou igual em todos. É a melhor "
-            "política medida em todos os α.",
+            "+1,6), empatado em α = 1,0, com pico maior ou igual em todos. No FEMNIST, "
+            "ganha +4,0 do FedAvg com Dirichlet (8 de 8) e +0,2 por escritor. É a melhor "
+            "política medida em todos os cenários.",
             "O ganho da fração mínima vem de pular rodadas, e não de treinar uma fração "
             "dos dados: os clientes de bateria pequena guardam energia no começo e treinam "
             "todos os dados no fim. No α = 0,1, \"treina tudo ou pula\" (fração 1,0) é a "
@@ -843,12 +904,19 @@ def build() -> list:
             "α = 0,1, as seeds 42 a 44 deram o dobro do ganho do LeanFed-c medido com 8, e "
             "o ganho com D = 5 caiu de 10 para 6,3 pontos. Já a fração mínima, que com 3 "
             "seeds parecia ruído, se confirmou com 8.",
+            "Com MobileNetV3 e dados não-IID, a média das estatísticas da BatchNorm feita "
+            "pela FedAvg distorce a acurácia do modelo global no FEMNIST; para comparar "
+            "métodos, é preciso recalibrá-las antes de avaliar (seção 1).",
         ]),
         H2("Limitações"),
         bullets([
-            "O FEMNIST tem só 3 seeds (42 a 44) e nenhuma variante do LeanFed-c. A fração "
-            "mínima 0,5 tem os quatro α do CIFAR-10; as frações 0,3, 0,7 e 1,0, a margem de "
-            "cauda e D = 5 só o α = 0,1.",
+            "A fração mínima 0,5 tem os quatro α do CIFAR-10 e as duas partições do "
+            "FEMNIST; as frações 0,3, 0,7 e 1,0, a margem de cauda e D = 5, só o α = 0,1 do "
+            "CIFAR-10.",
+            "No FEMNIST, a BatchNorm só é recalibrada na avaliação: os clientes continuam "
+            "recebendo a média das estatísticas. Não se sabe se recalibrar também no "
+            "modelo enviado (ou trocar a BatchNorm por GroupNorm) mudaria o treino, nem por "
+            "que a distorção varia de 5 a 16 pontos entre os métodos.",
             "Não se sabe por que a fração mínima melhora o LeanFed-c: o ganho não fica nas "
             "classes dos clientes de 500 J. A acurácia por classe só foi medida no modelo "
             "da rodada 20, porque os das outras rodadas não são salvos, e não se sabe se o "
@@ -866,7 +934,6 @@ def build() -> list:
         ]),
         H2("Próximos passos"),
         bullets([
-            "Testar a fração mínima 0,5 no FEMNIST e repetir o FEMNIST nas seeds 45 a 49.",
             "Descobrir de onde vem o ganho da fração mínima sobre o LeanFed-c: comparar o "
             "total de exemplos agregados por rodada e testar se as atualizações treinadas "
             "com poucos dados atrapalham o modelo global.",
@@ -888,8 +955,10 @@ def build() -> list:
     s += [
         H1("Apêndice A. Runs e como reproduzir"),
         P("Pastas em <i>outputs/</i> (prefixo do id). Todas com o cenário da seção 1; "
-          "cada linha muda só o que o nome diz. As demais runs estão no apêndice do "
-          "histórico."),
+          "cada linha muda só o que o nome diz. As runs do FEMNIST são as com "
+          "<i>bn-recalibrate=true</i> (lote de 23/10), que repetem as anteriores com a "
+          "mesma acurácia original e acrescentam a recalibrada. As demais runs estão no "
+          "apêndice do histórico."),
         table(
             ["Cenário e política", "Seed 42", "Seed 43", "Seed 44"],
             [
@@ -913,10 +982,12 @@ def build() -> list:
                 ["CIFAR-10 α = 1,0: FedAvg", "12018…", "21996…", "11654…"],
                 ["CIFAR-10 α = 1,0: LeanFed-c", "17183…", "69488…", "15431…"],
                 ["CIFAR-10 α = 1,0: fração mínima 0,5", "18343…", "49975…", "67601…"],
-                ["FEMNIST escritor: FedAvg", "10788…", "31018…", "31394…"],
-                ["FEMNIST escritor: LeanFed-c", "17288…", "11376…", "72789…"],
-                ["FEMNIST Dirichlet: FedAvg", "38162…", "12225…", "15641…"],
-                ["FEMNIST Dirichlet: LeanFed-c", "14124…", "14952…", "15300…"],
+                ["FEMNIST escritor: FedAvg", "29553…", "14431…", "10766…"],
+                ["FEMNIST escritor: LeanFed-c", "14878…", "28328…", "12001…"],
+                ["FEMNIST escritor: fração mínima 0,5", "17757…", "44950…", "10449…"],
+                ["FEMNIST Dirichlet: FedAvg", "12511…", "15898…", "72012…"],
+                ["FEMNIST Dirichlet: LeanFed-c", "88227…", "19479…", "59824…"],
+                ["FEMNIST Dirichlet: fração mínima 0,5", "45006…", "95189…", "12909…"],
             ],
             [2.4, 1.2, 1.2, 1.2],
             split=True,
@@ -959,6 +1030,17 @@ def build() -> list:
                  "75707…"],
                 ["CIFAR-10 α = 1,0: fração mínima 0,5", "88964…", "27903…", "58342…",
                  "18979…", "15558…"],
+                ["FEMNIST escritor: FedAvg", "14499…", "13120…", "12118…", "15009…", "14904…"],
+                ["FEMNIST escritor: LeanFed-c", "12487…", "15266…", "10577…", "13214…",
+                 "15799…"],
+                ["FEMNIST escritor: fração mínima 0,5", "46534…", "50927…", "14157…",
+                 "32677…", "11099…"],
+                ["FEMNIST Dirichlet: FedAvg", "16578…", "18360…", "16197…", "44154…",
+                 "81443…"],
+                ["FEMNIST Dirichlet: LeanFed-c", "17665…", "15770…", "70768…", "13113…",
+                 "18339…"],
+                ["FEMNIST Dirichlet: fração mínima 0,5", "19907…", "77329…", "16194…",
+                 "15101…", "59879…"],
             ],
             [2.4, 1, 1, 1, 1, 1],
             split=True,
@@ -973,15 +1055,18 @@ def build() -> list:
 ./scripts/run_seeds.sh -v leanfed-c-mdf0.7,leanfed-c-mdf1.0 42 43 44 45 46 47 48 49
 ./scripts/run_seeds.sh -d cifar10-a0.3 -v fedavg,leanfed-c 42 43 44   # ou a0.05, a1.0
 ./scripts/run_seeds.sh -d cifar10-a0.3 -v leanfed-c-mdf0.5 42 43 44 45 46 47 48 49
-./scripts/run_seeds.sh -d femnist -v fedavg,leanfed,leanfed-c 42 43 44
-./scripts/run_seeds.sh -d femnist-dirichlet -v fedavg,leanfed,leanfed-c 42 43 44
+./scripts/run_seeds.sh -d femnist -x "bn-recalibrate=true" \\
+    -v fedavg,leanfed-c,leanfed-c-mdf0.5 42 43 44 45 46 47 48 49   # ou -d femnist-dirichlet
 # média ± desvio, classes perdidas e ganho pareado (o --ref escolhe o cenário)
 python3 scripts/seeds_summary.py --ref 1977  -o graficos/seeds         # α = 0,1 e variantes
 python3 scripts/seeds_summary.py --ref 11428 -o graficos/seeds-alfa-0.3
 python3 scripts/class_loss.py    --ref 11428 -o graficos/seeds-alfa-0.3
+python3 scripts/seeds_summary.py --bn --ref 38162 -o graficos/seeds-femnist-dirichlet
+python3 scripts/class_loss.py    --bn --ref 38162 -o graficos/seeds-femnist-dirichlet
+python3 scripts/seeds_summary.py --bn --ref 10788 -o graficos/seeds-femnist   # escritor
 # acurácia por classe do final_model.pt e parte de cada classe por bateria (na CPU)
 docker run --rm -v aprendfed_data:/data:ro -v "$PWD":/app:ro aprendfed:latest \\
-    python scripts/class_accuracy.py outputs/run-<id>-<data> ...
+    python scripts/class_accuracy.py [--bn] outputs/run-<id>-<data> ...
 # Figura 3 a partir dos perda_classes.csv
 python3 scripts/plot_gain_classes.py --ext pdf
 """),
@@ -998,7 +1083,7 @@ def main() -> None:
         leftMargin=MARGIN, rightMargin=MARGIN,
         topMargin=0.8 * inch, bottomMargin=0.9 * inch,
         title="Resultados do AprendFed",
-        subject="LeanFed-c contra FedAvg com bateria limitada, até 23/10/2026",
+        subject="LeanFed-c contra FedAvg com bateria limitada, até 24/10/2026",
         author="AprendFed",
     )
     doc.build(build(), onFirstPage=footer, onLaterPages=footer)
