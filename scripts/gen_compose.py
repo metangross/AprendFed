@@ -119,13 +119,15 @@ volumes:
 """
 
 
-def per_client(parser: argparse.ArgumentParser, name: str, raw: str, n: int) -> list[float]:
-    """Lista separada por vírgulas, repetida até ter `n` valores (todos > 0)."""
+def per_client(parser: argparse.ArgumentParser, name: str, raw: str, n: int,
+               zero: bool = False) -> list[float]:
+    """Lista separada por vírgulas, repetida até ter `n` valores (todos > 0, ou ≥ 0
+    com `zero`)."""
     vals = [float(v) for v in raw.split(",")]
     if len(vals) > n:
         parser.error(f"{name} tem mais valores do que clientes")
-    if any(v <= 0 for v in vals):
-        parser.error(f"{name} deve conter apenas valores > 0")
+    if any(v < 0 or (v == 0 and not zero) for v in vals):
+        parser.error(f"{name} deve conter apenas valores > 0" + (" ou 0" if zero else ""))
     return [vals[i % len(vals)] for i in range(n)]
 
 
@@ -149,7 +151,8 @@ def main() -> None:
     speeds = per_client(parser, "--speeds", args.speeds, n)
     power = per_client(parser, "--power-factors", args.power_factors, n)
     net = per_client(parser, "--net-mbps", args.net_mbps, n)
-    radio = per_client(parser, "--radio-w", args.radio_w, n)
+    # Rádio 0 = comunicação de graça (isola o efeito do custo de rede).
+    radio = per_client(parser, "--radio-w", args.radio_w, n, zero=True)
     batteries = per_client(parser, "--batteries", args.batteries, n) if args.batteries else None
 
     def energy(i: int) -> str:

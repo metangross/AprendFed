@@ -9,7 +9,8 @@ Uso:
     python3 scripts/seeds_summary.py --bn          # acurácia com a BN recalibrada
 
 Entram as runs com o mesmo setup da run de referência: run_config igual (fora a
-seed e as chaves de VARIANT) e as mesmas baterias iniciais e redes por cliente.
+seed e as chaves de VARIANT) e as mesmas baterias iniciais, redes e rádios por
+cliente.
 Elas são agrupadas pela variante (política de energia e seus parâmetros). Se
 houver mais de uma run com a mesma variante e seed, vale a mais recente: a mesma
 config com a mesma seed dá o mesmo resultado.
@@ -77,7 +78,9 @@ def setup(run: Run) -> tuple:
           if k not in IGNORE and k not in VARIANT}
     if rc["dataset"] != "femnist":
         rc.pop("writers-per-client", None)
-    nodes = {pid: (rows[0].get("battery_before"), rows[0].get("net_mbps"))
+    # radio_w só é gravado desde as runs sem rádio; as anteriores usavam 1,8 W.
+    nodes = {pid: (rows[0].get("battery_before"), rows[0].get("net_mbps"),
+                   rows[0].get("radio_w", 1.8 if rows[0].get("net_mbps") else None))
              for pid, rows in run.clients.items()}
     return tuple(sorted(rc.items())), tuple(sorted(nodes.items()))
 

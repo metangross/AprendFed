@@ -135,6 +135,7 @@ def train(msg: Message, context: Context) -> Message:
             "energy_policy": str(rc["energy-policy"]),
             "power_factor": float(nc.get("power-factor", 1.0)),
             "net_mbps": float(nc.get("net-mbps", 25.0)),
+            "radio_w": float(nc.get("radio-w", 1.8)),
             "bw_down_mbps": cost.bw_down_mbps,
             "bw_up_mbps": cost.bw_up_mbps,
             "battery_before": battery,
