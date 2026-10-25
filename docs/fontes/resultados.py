@@ -203,7 +203,7 @@ def footer(canvas, doc):
     canvas.line(MARGIN, y + 11, A4[0] - MARGIN, y + 11)
     canvas.setFont("DejaVu", 8)
     canvas.setFillColor(GRAY)
-    canvas.drawString(MARGIN, y, "Resultados do projeto AprendFed — até 24 de outubro de 2026")
+    canvas.drawString(MARGIN, y, "Resultados do projeto AprendFed — até 25 de outubro de 2026")
     canvas.drawRightString(A4[0] - MARGIN, y, str(doc.page))
     canvas.restoreState()
 
@@ -232,7 +232,7 @@ NO_BATTERY_ACC = 0.7855  # mesma configuração sem energia (run 4158…, seed 4
 # contribuem em nenhuma das 3 últimas rodadas). Seeds 42 a 49, nessa ordem. No
 # FEMNIST, a acurácia é a com a BatchNorm recalibrada (test_acc_bn).
 SETUPS = {
-    # nome: (dataset, rótulo curto, α no eixo da Figura 2 ou None, FedAvg, LeanFed-c, classes)
+    # nome: (dataset, rótulo curto, α no eixo da Figura 3 ou None, FedAvg, LeanFed-c, classes)
     "CIFAR-10, α = 0,05": ("CIFAR-10", "α = 0,05", 0.05,
                             (0.5185, 0.5470, 0.3281, 0.4181, 0.6496, 0.4667, 0.3602, 0.5517),
                             (0.6844, 0.6543, 0.3935, 0.5387, 0.7195, 0.5103, 0.5050, 0.5586),
@@ -302,6 +302,21 @@ CAUSE_LOGS = {
     ("cauda", "LeanFed-c"): (492, 27.7, 6.54, 4.38, 278, 0.2),
     ("cauda", "fração 0,5"): (548, 33.5, 5.97, 4.87, 255, 0.0),
     ("cauda", "fração 1,0"): (559, 38.4, 5.42, 4.97, 231, 0.0),
+}
+# Varredura da potência do rádio (CIFAR-10, α = 0,1, baterias 1500, 1000 e 500 J): acurácia
+# média das 3 últimas rodadas, seeds 42 a 49. O 1,8 W é o cenário da seção 1.
+RADIO = {
+    0.9: ((0.7723, 0.7494, 0.7504, 0.7937, 0.8019, 0.7857, 0.7786, 0.7931),
+          (0.7822, 0.7572, 0.7579, 0.8041, 0.8074, 0.7928, 0.7789, 0.7755)),
+    1.8: (CAUSE[("rádio", "LeanFed-c")], CAUSE[("rádio", "fração 0,5")]),
+    2.7: ((0.7775, 0.6842, 0.6691, 0.7221, 0.7067, 0.7221, 0.7127, 0.7161),
+          (0.7880, 0.7259, 0.7267, 0.7933, 0.7558, 0.7389, 0.7691, 0.7232)),
+}
+# Como CAUSE_LOGS, por potência: (LeanFed-c, fração 0,5).
+RADIO_LOGS = {
+    0.9: ((644, 31.1, 3.50, 5.74, 298, 1.0), (656, 33.5, 3.39, 5.85, 288, 0.9)),
+    1.8: (CAUSE_LOGS[("rádio", "LeanFed-c")], CAUSE_LOGS[("rádio", "fração 0,5")]),
+    2.7: ((403, 22.8, 8.91, 3.62, 252, 2.6), (472, 29.8, 8.18, 4.25, 232, 2.0)),
 }
 # Fração média dos exemplos de treino nos clientes que o FedAvg perde.
 DATA_LOST = {"CIFAR-10, α = 0,05": 0.578, "CIFAR-10, α = 0,1": 0.548,
@@ -477,6 +492,52 @@ def figure_gain_classes(path: Path) -> None:
     plt.close(fig)
 
 
+def figure_radio(path: Path) -> None:
+    """Ganho da fração mínima 0,5 sobre o LeanFed-c contra a potência do rádio."""
+    fig, ax = plt.subplots(figsize=(6.6, 3.3))
+    color = SERIES[3]
+    ax.axhline(0, color=AXIS, lw=1, zorder=1)
+    # Sem rádio, vazado: as baterias são outras (1025, 550 e 85 J).
+    points = [(0.0, CAUSE[("sem rádio", "fração 0,5")], CAUSE[("sem rádio", "LeanFed-c")],
+               CAUSE_LOGS[("sem rádio", "fração 0,5")][0]
+               - CAUSE_LOGS[("sem rádio", "LeanFed-c")][0], True)]
+    points += [(w, mdf, lc, RADIO_LOGS[w][1][0] - RADIO_LOGS[w][0][0], False)
+               for w, (lc, mdf) in RADIO.items()]
+    means = []
+    for w, mdf, lc, extra, hollow in points:
+        d = [100 * (x - y) for x, y in zip(mdf, lc)]
+        m = statistics.mean(d)
+        half = T975[len(d)] * statistics.stdev(d) / len(d) ** 0.5
+        face = "none" if hollow else color
+        edge = color if hollow else "white"
+        ax.scatter([w] * len(d), d, s=22, facecolors=face, edgecolors=edge, alpha=0.45,
+                   linewidths=1.1, zorder=2)
+        ax.plot([w, w], [m - half, m + half], color=color, lw=2, zorder=3)
+        ax.scatter([w], [m], s=75, facecolors="white" if hollow else color, edgecolors=color
+                   if hollow else "white", linewidths=1.8, zorder=4)
+        ax.annotate(f"{signed(m)}", (w, m), xytext=(9, 0), textcoords="offset points",
+                    fontsize=8, color=INK, va="center", fontweight="bold", zorder=5,
+                    bbox=dict(boxstyle="square,pad=0.1", fc="white", ec="none"))
+        ax.text(w, -3.3, f"{signed(extra, 0)} mil exemplos", fontsize=7.5, color=INK_2,
+                ha="center")
+        if not hollow:
+            means.append((w, m))
+    ax.plot(*zip(*means), color=color, lw=1, ls=(0, (4, 3)), zorder=2)
+    ax.text(0.0, 7.7, "baterias menores", fontsize=7.5, color=MUTED, ha="center")
+    ax.set_xlim(-0.35, 3.05)
+    ax.set_ylim(-4, 8.5)
+    ax.set_xticks([0, 0.9, 1.8, 2.7])
+    ax.set_xticklabels(["0 W", "0,9 W", "1,8 W", "2,7 W"])
+    ax.set_yticks(range(-2, 9, 2))
+    ax.set_yticklabels([signed(v, 0) if v else "0" for v in range(-2, 9, 2)])
+    ax.set_xlabel("potência do rádio", fontsize=8, color=MUTED)
+    ax.set_ylabel("fração 0,5 − LeanFed-c (pontos)", fontsize=8, color=MUTED)
+    style_axes(ax)
+    fig.tight_layout()
+    fig.savefig(path, dpi=220)
+    plt.close(fig)
+
+
 # ---------------------------------------------------------------- conteúdo
 def setup_rows():
     rows = []
@@ -518,6 +579,17 @@ def cause_rows():
     return rows
 
 
+def radio_rows():
+    rows = []
+    for w, (lc, mdf) in RADIO.items():
+        (lc_total, _, lc_net, _, _, lc_dead), (total, _, net, _, _, dead) = RADIO_LOGS[w]
+        rows.append([f"{br(w)} W", mean_sd(lc), mean_sd(mdf),
+                     f"{br(lc_total, 0)} → {br(total, 0)} mil",
+                     f"{br(lc_net, 2)} → {br(net, 2)}", f"{br(lc_dead)} → {br(dead)}",
+                     paired(mdf, lc)])
+    return rows
+
+
 def build() -> list:
     s = []
     s += [
@@ -525,7 +597,7 @@ def build() -> list:
         P("Resultados do AprendFed", "title"),
         P("LeanFed-c contra FedAvg com bateria limitada: o que os experimentos mostram",
           "sub"),
-        P("Até 24 de outubro de 2026 — CIFAR-10 e FEMNIST com 8 seeds — branch "
+        P("Até 25 de outubro de 2026 — CIFAR-10 e FEMNIST com 8 seeds — branch "
           "<i>leanfed-baseline</i> (commit 86ab3a9)",
           "sub"),
         Spacer(1, 12),
@@ -553,6 +625,8 @@ def build() -> list:
              "rodada pulada economiza a energia de rede, que vira treino. Sem rádio, o "
              "total fica igual e o ganho cai para +1,2 ponto (fração 0,5, sem "
              "significância); com a margem de cauda, ninguém morre e o ganho fica (+2,9). "
+             "Variando a potência do rádio, o ganho acompanha o custo da rede: +0,4 com "
+             "0,9 W, +2,5 com 1,8 W e +3,9 com 2,7 W (8 de 8 seeds). "
              "Entre "
              "cenários, o ganho acompanha a fração de classes concentradas nos clientes que "
              "o FedAvg perde por falta de bateria, e não a quantidade de dados que esses "
@@ -852,6 +926,35 @@ def build() -> list:
             "p = 0,05); com a 0,5, não (+0,12). Com 8 seeds, uma diferença de ~60 mil "
             "exemplos (cerca de 10%) é pequena diante da variação entre seeds.",
         ]),
+        P("<b>Se a causa é a rede, o ganho deve crescer com o custo dela.</b> Para testar, "
+          "a potência do rádio variou de 1,8 W para 0,9 e 2,7 W, com as mesmas baterias "
+          "(1500, 1000 e 500 J), no LeanFed-c e na fração 0,5 (α = 0,1, 8 seeds)."),
+        table(
+            ["Rádio", "LeanFed-c", "Fração 0,5", "Exemplos em 20 rodadas", "Rede (kJ)",
+             "Sem bateria no fim", "Fração 0,5 − LeanFed-c [IC 95%], seeds melhores"],
+            radio_rows(),
+            [0.65, 1.12, 1.12, 1.2, 1.05, 0.85, 1.55],
+        ),
+        figure(TMP / "radio.png", 6.3,
+               "Figura 2. Ganho da fração mínima 0,5 sobre o LeanFed-c contra a potência "
+               "do rádio (CIFAR-10, α = 0,1). Cada ponto pequeno é uma seed; o grande, a "
+               "média, com o IC 95%. Embaixo, quantos exemplos a mais a fração 0,5 treina "
+               "em 20 rodadas. O 0 W (vazado) usou baterias de 1025, 550 e 85 J e não entra "
+               "na linha tracejada."),
+        bullets([
+            "<b>O ganho cresce com a potência</b>: +0,4 ponto com 0,9 W (sem "
+            "significância, p = 0,27), +2,5 com 1,8 W e +3,9 com 2,7 W (8 de 8 seeds, "
+            "p = 0,003). Junto cresce a folga de exemplos: +12, +58 e +69 mil.",
+            "<b>Com rede barata, pular rodadas quase não economiza</b>: com 0,9 W, a rede "
+            "custa 3,5 kJ no LeanFed-c e a fração 0,5 economiza só 0,1 kJ dela (0,6 kJ com "
+            "1,8 W; 0,7 kJ com 2,7 W). O ganho fica perto do caso sem rádio (+1,2).",
+            "<b>Com rede cara, os dois pioram, mas o LeanFed-c piora mais</b>: de 1,8 para "
+            "2,7 W, ele cai de 74,8% para 71,4% e a fração 0,5 de 77,3% para 75,3%. Os "
+            "clientes sem bateria no fim sobem para 2,6 e 2,0, mas, como a margem de cauda "
+            "mostrou, as mortes explicam pouco do ganho.",
+            "É a previsão da causa (A): o ganho da fração mínima mede quanto da bateria "
+            "a rede consome, e some quando a rede é barata.",
+        ]),
         H2("A fração mínima 0,5 nos outros α"),
         table(
             ["α", "FedAvg", "LeanFed-c", "Fração mínima 0,5",
@@ -895,8 +998,8 @@ def build() -> list:
             "perde (seção 4).",
         ]),
         note("<b>O que só foi medido no α = 0,1 do CIFAR-10.</b> As frações 0,3, 0,7 e 1,0, "
-             "a margem de cauda, o custo fixo D = 5 e os experimentos sem rádio e com "
-             "margem de cauda na fração mínima."),
+             "a margem de cauda, o custo fixo D = 5 e os experimentos sem rádio, com "
+             "margem de cauda na fração mínima e com outras potências do rádio."),
     ]
 
     # 4 ----------------------------------------------------------------
@@ -919,13 +1022,13 @@ def build() -> list:
             [1.55, 0.4, 1.1, 1.1, 1.6, 0.85, 1.0, 1.05],
         ),
         figure(TMP / "alfa.png", 6.3,
-               "Figura 2. Acurácia média das 3 últimas rodadas contra o α do CIFAR-10, "
+               "Figura 3. Acurácia média das 3 últimas rodadas contra o α do CIFAR-10, "
                "8 seeds por ponto. Os pontos claros são as seeds; no alto, o ganho médio "
                "sobre o FedAvg, na cor de cada método. Todos pioram quando o α diminui; o "
                "FedAvg piora mais. A fração mínima 0,5 (seção 3) fica acima do LeanFed-c "
                "em todos os α."),
         figure(TMP / "ganho_classes.png", 6.3,
-               "Figura 3. Ganho do LeanFed-c contra a fração de classes concentradas nos "
+               "Figura 4. Ganho do LeanFed-c contra a fração de classes concentradas nos "
                "clientes que o FedAvg perde. Cada ponto pequeno é uma seed (8 por "
                "cenário); o grande, a média do cenário. CIFAR-10 preenchido, FEMNIST "
                "vazado."),
@@ -958,7 +1061,7 @@ def build() -> list:
             "máxima também é menor (87,4% contra 88,0%). Sem classes a proteger, sobra só o "
             "custo de treinar menos dados por rodada. Com a fração mínima 0,5, esse custo "
             "some (seção 3).",
-            "<b>O ganho é relativo.</b> Com α menor os dois métodos pioram (Figura 2). O "
+            "<b>O ganho é relativo.</b> Com α menor os dois métodos pioram (Figura 3). O "
             "LeanFed-c não fica melhor com dados mais heterogêneos; ele resiste melhor a um "
             "cenário pior.",
             "<b>A relação vale entre cenários, não seed a seed.</b> Dentro de um mesmo α, a "
@@ -1000,7 +1103,8 @@ def build() -> list:
             "(+13,5 com a fração 1,0). Ele vem de treinar mais exemplos no total com a "
             "energia de rede que as rodadas puladas economizam: sem custo de rádio, o "
             "ganho cai para +1,2 e +0,6 ponto, sem significância; sem mortes (margem de "
-            "cauda), ele fica.",
+            "cauda), ele fica; e ele cresce com a potência do rádio (+0,4, +2,5 e +3,9 "
+            "pontos com 0,9, 1,8 e 2,7 W, na fração 0,5).",
             "Para comparar políticas, usar a média das últimas rodadas e várias seeds; a "
             "acurácia de uma rodada e de uma seed é ruído. Três seeds não bastam: no "
             "α = 0,1, as seeds 42 a 44 deram o dobro do ganho do LeanFed-c medido com 8, e "
@@ -1020,8 +1124,9 @@ def build() -> list:
             "modelo enviado (ou trocar a BatchNorm por GroupNorm) mudaria o treino, nem por "
             "que a distorção varia de 5 a 16 pontos entre os métodos.",
             "A causa do ganho da fração mínima (mais exemplos no total) só foi testada no "
-            "α = 0,1 do CIFAR-10, e depende do custo do rádio: com rede mais barata ou "
-            "mais cara, o ganho deve mudar junto. A acurácia por classe só foi medida no "
+            "α = 0,1 do CIFAR-10, e depende do custo do rádio: com 0,9 W o ganho some. "
+            "Com uma potência só para todos os clientes, não se sabe o que acontece quando "
+            "o custo da rede varia entre eles. A acurácia por classe só foi medida no "
             "modelo da rodada 20, porque os das outras rodadas não são salvos, e não se "
             "sabe se o ganho depende de parar o treino na rodada 20.",
             "A fração de classes concentradas explica a diferença entre cenários, mas não "
@@ -1037,8 +1142,9 @@ def build() -> list:
         ]),
         H2("Próximos passos"),
         bullets([
-            "Variar a potência do rádio (por exemplo 0,9 e 3,6 W) para ver se o ganho da "
-            "fração mínima acompanha a energia de rede economizada.",
+            "Variar a potência do rádio entre clientes (ou a faixa de rede), em vez de uma "
+            "potência só para todos, para ver se a fração mínima continua ganhando quando "
+            "o custo da rede é desigual.",
             "Entender os casos em que o FedAvg perde classes e não degrada (seed 45 com "
             "α = 0,1), com a acurácia por classe (<i>scripts/class_accuracy.py</i>).",
             "Reavaliar a ideia de fazer os clientes frágeis contribuírem mais cedo: a "
@@ -1084,6 +1190,12 @@ def build() -> list:
                  "75048…"],
                 ["CIFAR-10 α = 0,1, sem rádio: fração mínima 1,0", "53248…", "34449…",
                  "97914…"],
+                ["CIFAR-10 α = 0,1, rádio 0,9 W: LeanFed-c", "28894…", "86803…", "15504…"],
+                ["CIFAR-10 α = 0,1, rádio 0,9 W: fração mínima 0,5", "52212…", "12939…",
+                 "23937…"],
+                ["CIFAR-10 α = 0,1, rádio 2,7 W: LeanFed-c", "17904…", "79092…", "96421…"],
+                ["CIFAR-10 α = 0,1, rádio 2,7 W: fração mínima 0,5", "70098…", "43013…",
+                 "52032…"],
                 ["CIFAR-10 α = 0,1, D = 5: FedAvg", "99297…", "14583…", "15387…"],
                 ["CIFAR-10 α = 0,1, D = 5: LeanFed", "41686…", "16970…", "12657…"],
                 ["CIFAR-10 α = 0,1, D = 5: LeanFed-c", "10067…", "10184…", "98610…"],
@@ -1135,6 +1247,14 @@ def build() -> list:
                  "26993…", "18326…", "94229…"],
                 ["CIFAR-10 α = 0,1, sem rádio: fração mínima 1,0", "25801…", "15356…",
                  "12690…", "18217…", "17036…"],
+                ["CIFAR-10 α = 0,1, rádio 0,9 W: LeanFed-c", "25716…", "59442…", "49788…",
+                 "17171…", "18359…"],
+                ["CIFAR-10 α = 0,1, rádio 0,9 W: fração mínima 0,5", "29361…", "35438…",
+                 "24192…", "16546…", "12529…"],
+                ["CIFAR-10 α = 0,1, rádio 2,7 W: LeanFed-c", "15844…", "14213…", "13321…",
+                 "13060…", "83579…"],
+                ["CIFAR-10 α = 0,1, rádio 2,7 W: fração mínima 0,5", "10793…", "37793…",
+                 "35657…", "87928…", "12324…"],
                 ["CIFAR-10 α = 0,1, D = 5: FedAvg", "16348…", "58377…", "55821…", "18038…",
                  "63194…"],
                 ["CIFAR-10 α = 0,1, D = 5: LeanFed", "43062…", "39301…", "17083…", "13518…",
@@ -1177,6 +1297,8 @@ def build() -> list:
 ./scripts/run_seeds.sh -x "tail-margin=0.9" -v leanfed-c-mdf0.5,leanfed-c-mdf1.0 42 43 44 45 46 47 48 49
 # sem rádio: subir antes ./run.sh -n 15 -b 1025,550,85 --net-mbps 25 --radio-w 0
 ./scripts/run_seeds.sh -v leanfed-c,leanfed-c-mdf0.5,leanfed-c-mdf1.0 42 43 44 45 46 47 48 49
+# outra potência: subir antes ./run.sh -n 15 -b 1500,1000,500 --net-mbps 25 --radio-w 0.9 (ou 2.7)
+./scripts/run_seeds.sh -v leanfed-c,leanfed-c-mdf0.5 42 43 44 45 46 47 48 49
 ./scripts/run_seeds.sh -d cifar10-a0.3 -v fedavg,leanfed-c 42 43 44   # ou a0.05, a1.0
 ./scripts/run_seeds.sh -d cifar10-a0.3 -v leanfed-c-mdf0.5 42 43 44 45 46 47 48 49
 ./scripts/run_seeds.sh -d femnist -x "bn-recalibrate=true" \\
@@ -1184,6 +1306,7 @@ def build() -> list:
 # média ± desvio, classes perdidas e ganho pareado (o --ref escolhe o cenário)
 python3 scripts/seeds_summary.py --ref 1977  -o graficos/seeds         # α = 0,1 e variantes
 python3 scripts/seeds_summary.py --ref 5626  -o graficos/seeds-sem-radio
+python3 scripts/seeds_summary.py --ref 28894 -o graficos/seeds-radio-0.9    # 2,7 W: --ref 17904
 python3 scripts/seeds_summary.py --ref 11428 -o graficos/seeds-alfa-0.3
 python3 scripts/class_loss.py    --ref 11428 -o graficos/seeds-alfa-0.3
 python3 scripts/seeds_summary.py --bn --ref 38162 -o graficos/seeds-femnist-dirichlet
@@ -1192,7 +1315,7 @@ python3 scripts/seeds_summary.py --bn --ref 10788 -o graficos/seeds-femnist   # 
 # acurácia por classe do final_model.pt e parte de cada classe por bateria (na CPU)
 docker run --rm -v aprendfed_data:/data:ro -v "$PWD":/app:ro aprendfed:latest \\
     python scripts/class_accuracy.py [--bn] outputs/run-<id>-<data> ...
-# Figura 3 a partir dos perda_classes.csv
+# Figura 4 a partir dos perda_classes.csv
 python3 scripts/plot_gain_classes.py --ext pdf
 """),
     ]
@@ -1201,6 +1324,7 @@ python3 scripts/plot_gain_classes.py --ext pdf
 
 def main() -> None:
     figure_accuracy(TMP / "acuracia.png")
+    figure_radio(TMP / "radio.png")
     figure_alpha(TMP / "alfa.png")
     figure_gain_classes(TMP / "ganho_classes.png")
     doc = SimpleDocTemplate(
@@ -1208,7 +1332,7 @@ def main() -> None:
         leftMargin=MARGIN, rightMargin=MARGIN,
         topMargin=0.8 * inch, bottomMargin=0.9 * inch,
         title="Resultados do AprendFed",
-        subject="LeanFed-c contra FedAvg com bateria limitada, até 24/10/2026",
+        subject="LeanFed-c contra FedAvg com bateria limitada, até 25/10/2026",
         author="AprendFed",
     )
     doc.build(build(), onFirstPage=footer, onLaterPages=footer)
