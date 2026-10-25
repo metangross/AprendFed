@@ -318,6 +318,22 @@ RADIO_LOGS = {
     1.8: (CAUSE_LOGS[("rádio", "LeanFed-c")], CAUSE_LOGS[("rádio", "fração 0,5")]),
     2.7: ((403, 22.8, 8.91, 3.62, 252, 2.6), (472, 29.8, 8.18, 4.25, 232, 2.0)),
 }
+# Rádio diferente por cliente, média 1,8 W (potências dos clientes de 1500, 1000 e 500 J):
+# (LeanFed-c, fração 0,5), acurácia como em RADIO. O primeiro é o cenário da seção 1.
+RADIO_HETERO = {
+    (1.8, 1.8, 1.8): RADIO[1.8],
+    (0.9, 1.8, 2.7): ((0.7801, 0.7131, 0.7228, 0.7864, 0.7838, 0.7464, 0.7512, 0.7559),
+                      (0.7708, 0.7488, 0.7264, 0.8102, 0.7988, 0.7651, 0.7787, 0.7665)),
+    (2.7, 1.8, 0.9): ((0.8067, 0.7353, 0.7251, 0.7713, 0.7579, 0.7752, 0.7731, 0.7665),
+                      (0.7948, 0.7305, 0.7598, 0.7950, 0.7831, 0.7679, 0.7645, 0.7545)),
+}
+# Como CAUSE_LOGS, mais os exemplos (mil) dos clientes de 500 J: (LeanFed-c, fração 0,5).
+RADIO_HETERO_LOGS = {
+    (1.8, 1.8, 1.8): (RADIO_LOGS[1.8][0] + (38,), RADIO_LOGS[1.8][1] + (91,)),
+    (0.9, 1.8, 2.7): ((517, 27.6, 5.51, 4.62, 255, 1.8, 34), (561, 32.3, 5.04, 5.02, 242, 1.2, 73)),
+    (2.7, 1.8, 0.9): ((558, 25.6, 6.97, 4.98, 296, 1.4, 119),
+                      (577, 30.0, 6.78, 5.17, 284, 1.2, 131)),
+}
 # Fração média dos exemplos de treino nos clientes que o FedAvg perde.
 DATA_LOST = {"CIFAR-10, α = 0,05": 0.578, "CIFAR-10, α = 0,1": 0.548,
              "CIFAR-10, α = 0,3": 0.450, "CIFAR-10, α = 1,0": 0.406,
@@ -590,6 +606,19 @@ def radio_rows():
     return rows
 
 
+def radio_hetero_rows():
+    names = {(1.8, 1.8, 1.8): "igual", (0.9, 1.8, 2.7): "pior caso",
+             (2.7, 1.8, 0.9): "favorável"}
+    rows = []
+    for ws, (lc, mdf) in RADIO_HETERO.items():
+        lc_log, log = RADIO_HETERO_LOGS[ws]
+        rows.append([f"{' / '.join(br(w) for w in ws)} W ({names[ws]})", mean_sd(lc),
+                     mean_sd(mdf), f"{br(lc_log[0], 0)} → {br(log[0], 0)} mil",
+                     f"{br(lc_log[6], 0)} → {br(log[6], 0)} mil",
+                     f"{br(lc_log[5])} → {br(log[5])}", paired(mdf, lc)])
+    return rows
+
+
 def build() -> list:
     s = []
     s += [
@@ -626,7 +655,9 @@ def build() -> list:
              "total fica igual e o ganho cai para +1,2 ponto (fração 0,5, sem "
              "significância); com a margem de cauda, ninguém morre e o ganho fica (+2,9). "
              "Variando a potência do rádio, o ganho acompanha o custo da rede: +0,4 com "
-             "0,9 W, +2,5 com 1,8 W e +3,9 com 2,7 W (8 de 8 seeds). "
+             "0,9 W, +2,5 com 1,8 W e +3,9 com 2,7 W (8 de 8 seeds). Com o rádio "
+             "diferente entre clientes (média 1,8 W), ele fica (+1,6) quando o rádio mais "
+             "caro está nos clientes de menos bateria e some (+0,5) quando está nos de mais. "
              "Entre "
              "cenários, o ganho acompanha a fração de classes concentradas nos clientes que "
              "o FedAvg perde por falta de bateria, e não a quantidade de dados que esses "
@@ -955,14 +986,47 @@ def build() -> list:
             "É a previsão da causa (A): o ganho da fração mínima mede quanto da bateria "
             "a rede consome, e some quando a rede é barata.",
         ]),
-        H2("A fração mínima 0,5 nos outros α"),
+        P("<b>E se o custo da rede for desigual?</b> Com a mesma média de 1,8 W, o rádio "
+          "passou a variar entre os clientes, nas duas atribuições extremas: no pior caso, "
+          "os clientes de 500 J têm o rádio de 2,7 W e os de 1500 J, o de 0,9 W; no "
+          "favorável, o contrário. Os de 1000 J ficam com 1,8 W (α = 0,1, 8 seeds)."),
         table(
-            ["α", "FedAvg", "LeanFed-c", "Fração mínima 0,5",
-             "Fração 0,5 − LeanFed-c [IC 95%], seeds melhores",
-             "Fração 0,5 − FedAvg [IC 95%], seeds melhores"],
-            mdf_rows("CIFAR-10"),
-            [0.75, 1.2, 1.2, 1.1, 1.65, 1.75],
+            ["Rádio (1500 / 1000 / 500 J)", "LeanFed-c", "Fração 0,5",
+             "Exemplos em 20 rodadas", "Exemplos dos clientes de 500 J",
+             "Sem bateria no fim", "Fração 0,5 − LeanFed-c [IC 95%], seeds melhores"],
+            radio_hetero_rows(),
+            [1.15, 1.0, 1.0, 1.05, 1.05, 0.75, 1.5],
         ),
+        bullets([
+            "<b>A fração 0,5 não perde em nenhum caso, mas só ganha com clareza no pior "
+            "caso</b>: +1,6 ponto (7 de 8 seeds, p = 0,02), contra +2,5 com o rádio igual. "
+            "No favorável, +0,5, sem significância (3 de 8, p = 0,50).",
+            "<b>A folga vem dos clientes de 500 J</b>: no LeanFed-c, com rádio de 2,7 W, "
+            "eles treinam só 34 mil exemplos em 20 rodadas, e a fração 0,5 dobra isso "
+            "(73 mil). Com 0,9 W, o LeanFed-c já os treina (119 mil) e a fração 0,5 "
+            "acrescenta só 12 mil. Nos clientes de 1500 e 1000 J, as duas políticas treinam "
+            "quase o mesmo (até 5 mil de diferença).",
+            "<b>No pior caso, o ganho é menor que com o rádio igual</b> porque, com 2,7 W, "
+            "nem a fração 0,5 consegue fazer os clientes de 500 J treinarem tanto (73 mil, "
+            "contra 91 mil com 1,8 W): a folga total cai de +58 para +44 mil.",
+            "<b>O LeanFed-c sozinho melhora com o rádio desigual</b> (75,5% e 76,4%, contra "
+            "74,8%); a fração 0,5 fica entre 76,9% e 77,3% nos três casos.",
+            "Somando as potências iguais e desiguais com as mesmas baterias, o ganho segue "
+            "a folga de exemplos: +12, +19, +44, +58 e +69 mil dão +0,4, +0,5, +1,6, +2,5 "
+            "e +3,9 pontos. A fração mínima ajuda quando a rede é cara justamente para "
+            "quem tem pouca bateria.",
+        ]),
+        # O título não fica sozinho no pé da página: o keepWithNext não segura a tabela.
+        KeepTogether([
+            H2("A fração mínima 0,5 nos outros α"),
+            table(
+                ["α", "FedAvg", "LeanFed-c", "Fração mínima 0,5",
+                 "Fração 0,5 − LeanFed-c [IC 95%], seeds melhores",
+                 "Fração 0,5 − FedAvg [IC 95%], seeds melhores"],
+                mdf_rows("CIFAR-10"),
+                [0.75, 1.2, 1.2, 1.1, 1.65, 1.75],
+            ),
+        ]),
         bullets([
             "<b>Melhora o LeanFed-c em todos os α</b>, em 8 de 8 seeds em α = 0,05, 0,3 e "
             "1,0. A diferença diminui quando as classes se espalham, como o próprio ganho do "
@@ -999,7 +1063,8 @@ def build() -> list:
         ]),
         note("<b>O que só foi medido no α = 0,1 do CIFAR-10.</b> As frações 0,3, 0,7 e 1,0, "
              "a margem de cauda, o custo fixo D = 5 e os experimentos sem rádio, com "
-             "margem de cauda na fração mínima e com outras potências do rádio."),
+             "margem de cauda na fração mínima e com outras potências do rádio, iguais ou "
+             "diferentes entre clientes."),
     ]
 
     # 4 ----------------------------------------------------------------
@@ -1104,7 +1169,9 @@ def build() -> list:
             "energia de rede que as rodadas puladas economizam: sem custo de rádio, o "
             "ganho cai para +1,2 e +0,6 ponto, sem significância; sem mortes (margem de "
             "cauda), ele fica; e ele cresce com a potência do rádio (+0,4, +2,5 e +3,9 "
-            "pontos com 0,9, 1,8 e 2,7 W, na fração 0,5).",
+            "pontos com 0,9, 1,8 e 2,7 W, na fração 0,5). Com o rádio desigual entre "
+            "clientes, ele depende de quem paga a rede cara: +1,6 se são os de menos "
+            "bateria, +0,5 se são os de mais.",
             "Para comparar políticas, usar a média das últimas rodadas e várias seeds; a "
             "acurácia de uma rodada e de uma seed é ruído. Três seeds não bastam: no "
             "α = 0,1, as seeds 42 a 44 deram o dobro do ganho do LeanFed-c medido com 8, e "
@@ -1125,15 +1192,15 @@ def build() -> list:
             "que a distorção varia de 5 a 16 pontos entre os métodos.",
             "A causa do ganho da fração mínima (mais exemplos no total) só foi testada no "
             "α = 0,1 do CIFAR-10, e depende do custo do rádio: com 0,9 W o ganho some. "
-            "Com uma potência só para todos os clientes, não se sabe o que acontece quando "
-            "o custo da rede varia entre eles. A acurácia por classe só foi medida no "
+            "Com o rádio diferente entre clientes, só foram testadas as duas atribuições "
+            "extremas, com média 1,8 W e a mesma faixa de rede. A acurácia por classe só foi medida no "
             "modelo da rodada 20, porque os das outras rodadas não são salvos, e não se "
             "sabe se o ganho depende de parar o treino na rodada 20.",
             "A fração de classes concentradas explica a diferença entre cenários, mas não "
             "entre seeds do mesmo cenário: falta uma medida que preveja quando o FedAvg "
             "realmente degrada no fim.",
-            "Setup único: uma faixa de rede (25 Mbps), sem diferença de potência entre "
-            "clientes, sem recarga. A energia vem do perfil de uma GPU de desktop, não de "
+            "Setup único: uma faixa de rede (25 Mbps), diferença de potência entre "
+            "clientes só nos dois casos da seção 3, sem recarga. A energia vem do perfil de uma GPU de desktop, não de "
             "um celular.",
             "As mortes no fim por uma rodada de rede ruim continuam sem solução: a margem "
             "de cauda troca a morte por rodadas puladas.",
@@ -1142,14 +1209,11 @@ def build() -> list:
         ]),
         H2("Próximos passos"),
         bullets([
-            "Variar a potência do rádio entre clientes (ou a faixa de rede), em vez de uma "
-            "potência só para todos, para ver se a fração mínima continua ganhando quando "
-            "o custo da rede é desigual.",
             "Entender os casos em que o FedAvg perde classes e não degrada (seed 45 com "
             "α = 0,1), com a acurácia por classe (<i>scripts/class_accuracy.py</i>).",
             "Reavaliar a ideia de fazer os clientes frágeis contribuírem mais cedo: a "
             "fração mínima ganha fazendo o contrário.",
-            "Variar o setup (faixas de rede, baterias, potência por cliente) para ver se a "
+            "Variar o setup (faixa de rede por cliente, baterias, recarga) para ver se a "
             "vantagem se mantém.",
             "Submodelos de largura variável (HeteroFL), para comparar \"reduzir dados\" "
             "(LeanFed-c) com \"reduzir modelo\".",
@@ -1196,6 +1260,14 @@ def build() -> list:
                 ["CIFAR-10 α = 0,1, rádio 2,7 W: LeanFed-c", "17904…", "79092…", "96421…"],
                 ["CIFAR-10 α = 0,1, rádio 2,7 W: fração mínima 0,5", "70098…", "43013…",
                  "52032…"],
+                ["CIFAR-10 α = 0,1, rádio pior caso: LeanFed-c", "48003…", "86228…",
+                 "12501…"],
+                ["CIFAR-10 α = 0,1, rádio pior caso: fração mínima 0,5", "93772…",
+                 "82629…", "76218…"],
+                ["CIFAR-10 α = 0,1, rádio favorável: LeanFed-c", "10534…", "15985…",
+                 "95932…"],
+                ["CIFAR-10 α = 0,1, rádio favorável: fração mínima 0,5", "71955…",
+                 "10562…", "16631…"],
                 ["CIFAR-10 α = 0,1, D = 5: FedAvg", "99297…", "14583…", "15387…"],
                 ["CIFAR-10 α = 0,1, D = 5: LeanFed", "41686…", "16970…", "12657…"],
                 ["CIFAR-10 α = 0,1, D = 5: LeanFed-c", "10067…", "10184…", "98610…"],
@@ -1255,6 +1327,14 @@ def build() -> list:
                  "13060…", "83579…"],
                 ["CIFAR-10 α = 0,1, rádio 2,7 W: fração mínima 0,5", "10793…", "37793…",
                  "35657…", "87928…", "12324…"],
+                ["CIFAR-10 α = 0,1, rádio pior caso: LeanFed-c", "77058…", "15818…",
+                 "18227…", "11363…", "17824…"],
+                ["CIFAR-10 α = 0,1, rádio pior caso: fração mínima 0,5", "12423…",
+                 "98236…", "93644…", "15060…", "78797…"],
+                ["CIFAR-10 α = 0,1, rádio favorável: LeanFed-c", "46272…", "17018…",
+                 "86016…", "17404…", "98525…"],
+                ["CIFAR-10 α = 0,1, rádio favorável: fração mínima 0,5", "93140…",
+                 "15979…", "39601…", "11074…", "11695…"],
                 ["CIFAR-10 α = 0,1, D = 5: FedAvg", "16348…", "58377…", "55821…", "18038…",
                  "63194…"],
                 ["CIFAR-10 α = 0,1, D = 5: LeanFed", "43062…", "39301…", "17083…", "13518…",
@@ -1299,6 +1379,7 @@ def build() -> list:
 ./scripts/run_seeds.sh -v leanfed-c,leanfed-c-mdf0.5,leanfed-c-mdf1.0 42 43 44 45 46 47 48 49
 # outra potência: subir antes ./run.sh -n 15 -b 1500,1000,500 --net-mbps 25 --radio-w 0.9 (ou 2.7)
 ./scripts/run_seeds.sh -v leanfed-c,leanfed-c-mdf0.5 42 43 44 45 46 47 48 49
+# rádio por cliente: --radio-w 0.9,1.8,2.7 (pior caso) ou 2.7,1.8,0.9 (favorável), mesmas variantes
 ./scripts/run_seeds.sh -d cifar10-a0.3 -v fedavg,leanfed-c 42 43 44   # ou a0.05, a1.0
 ./scripts/run_seeds.sh -d cifar10-a0.3 -v leanfed-c-mdf0.5 42 43 44 45 46 47 48 49
 ./scripts/run_seeds.sh -d femnist -x "bn-recalibrate=true" \\
@@ -1307,6 +1388,7 @@ def build() -> list:
 python3 scripts/seeds_summary.py --ref 1977  -o graficos/seeds         # α = 0,1 e variantes
 python3 scripts/seeds_summary.py --ref 5626  -o graficos/seeds-sem-radio
 python3 scripts/seeds_summary.py --ref 28894 -o graficos/seeds-radio-0.9    # 2,7 W: --ref 17904
+python3 scripts/seeds_summary.py --ref 48003 -o graficos/seeds-radio-pior   # favorável: --ref 10534
 python3 scripts/seeds_summary.py --ref 11428 -o graficos/seeds-alfa-0.3
 python3 scripts/class_loss.py    --ref 11428 -o graficos/seeds-alfa-0.3
 python3 scripts/seeds_summary.py --bn --ref 38162 -o graficos/seeds-femnist-dirichlet
