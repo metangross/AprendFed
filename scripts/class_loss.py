@@ -33,8 +33,8 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from plot_run import CONTRIBUTED, ROOT, Run, find_run  # noqa: E402
-from seeds_summary import (BUDGET_ONLY, LEANFED_C_ONLY, VARIANT, setup, setup_runs,  # noqa: E402
-                           summarize, variant_label)
+from seeds_summary import (BUDGET_ONLY, COMM_ONLY, LEANFED_C_ONLY, VARIANT,  # noqa: E402
+                           WIDTH_ONLY, setup, setup_runs, summarize, variant_label)
 
 DOCKER = ["docker", "run", "--rm", "-v", "aprendfed_data:/data:ro",
           "-v", f"{ROOT}:/app:ro", "aprendfed:latest", "python", "scripts/partition_counts.py"]
@@ -50,7 +50,7 @@ def partition_spec(run: Run) -> dict:
 def fedavg_key(key: tuple) -> tuple:
     """A variante FedAvg com os mesmos parâmetros que valem para ela (ex.: custo fixo)."""
     v = dict(key, **{"energy-policy": "none"})
-    v.update({k: VARIANT[k] for k in LEANFED_C_ONLY + BUDGET_ONLY})
+    v.update({k: VARIANT[k] for k in LEANFED_C_ONLY + COMM_ONLY + WIDTH_ONLY + BUDGET_ONLY})
     return tuple(v.items())
 
 

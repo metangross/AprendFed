@@ -5,8 +5,9 @@ from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
 
+import numpy as np
 import torch
-from flwr.app import ArrayRecord, ConfigRecord, Context, Message, MetricRecord
+from flwr.app import Array, ArrayRecord, ConfigRecord, Context, Message, MetricRecord
 from flwr.serverapp import Grid, ServerApp
 from flwr.serverapp.strategy import FedAvg
 
@@ -16,6 +17,7 @@ from fedavg_app.energy import (
     ENERGY_POLICIES,
     comm_quantile,
     energy_summary,
+    parse_widths,
 )
 from fedavg_app.task import (
     DATASETS,
@@ -38,15 +40,55 @@ def _by_partition(replies: Iterable[Message]) -> list[Message]:
     return sorted(replies, key=key)
 
 
+def aggregate_heterofl(global_arrays: ArrayRecord, replies: list[Message],
+                       weight_key: str) -> ArrayRecord:
+    """Agregação do HeteroFL: cada elemento de cada tensor é a média ponderada
+    dos clientes cujo submodelo o contém (o prefixo do tensor completo); o que
+    nenhum cliente treinou fica com o valor global anterior."""
+    out = {}
+    for key, arr in global_arrays.items():
+        g = arr.numpy()
+        num, den = np.zeros(g.shape), np.zeros(g.shape)
+        for msg in replies:
+            v = msg.content["arrays"][key].numpy()
+            w = float(msg.content["metrics"][weight_key])
+            idx = tuple(slice(0, n) for n in v.shape)
+            num[idx] += w * v
+            den[idx] += w
+        avg = np.where(den > 0, num / np.maximum(den, 1e-300), g)
+        if np.issubdtype(g.dtype, np.integer):
+            avg = np.rint(avg)
+        out[key] = Array(np.asarray(avg, dtype=g.dtype))
+    return ArrayRecord(out)
+
+
 class OrderedFedAvg(FedAvg):
     """FedAvg que agrega as respostas na ordem das partições, não na de chegada.
 
     Somas em ponto flutuante dependem da ordem; sem isso, duas runs com a mesma
     seed divergem levemente a partir da 2ª rodada.
+
+    Com submodelos (energy-policy = "width"), as respostas menores que o modelo
+    global são agregadas pelo HeteroFL. Se todas forem do modelo completo, a
+    agregação é a do FedAvg, igual à das runs anteriores.
     """
 
+    def configure_train(self, server_round, arrays, config, grid):
+        self._global = arrays  # o aggregate_train do Flower não recebe o modelo global
+        return super().configure_train(server_round, arrays, config, grid)
+
     def aggregate_train(self, server_round: int, replies: Iterable[Message]):
-        return super().aggregate_train(server_round, _by_partition(replies))
+        replies = _by_partition(replies)
+        valid = [m for m in replies if not m.has_error()]
+        full = {k: a.shape for k, a in self._global.items()}
+        if all(m.content["arrays"][k].shape == shape
+               for m in valid for k, shape in full.items()):
+            return super().aggregate_train(server_round, replies)
+        valid, _ = self._check_and_log_replies(replies, is_train=True)
+        arrays = aggregate_heterofl(self._global, valid, self.weighted_by_key)
+        metrics = self.train_metrics_aggr_fn([m.content for m in valid],
+                                             self.weighted_by_key)
+        return arrays, metrics
 
     def aggregate_evaluate(self, server_round: int, replies: Iterable[Message]):
         return super().aggregate_evaluate(server_round, _by_partition(replies))
@@ -67,6 +109,11 @@ def main(grid: Grid, context: Context) -> None:
     comm_quantile(rc["comm-estimate"])  # falha já aqui se o valor for inválido
     if not 0 <= float(rc["min-data-fraction"]) <= 1:
         raise ValueError("min-data-fraction deve estar em [0, 1]")
+    parse_widths(rc["widths"])  # falha já aqui se o valor for inválido
+    if rc["energy-policy"] == "width" and rc["static-bn"] and not rc["bn-recalibrate"]:
+        # Com sBN, as estatísticas da BN do modelo global não são treinadas: o
+        # test_acc usaria as iniciais e só o test_acc_bn mede o modelo.
+        raise ValueError("static-bn exige bn-recalibrate=true")
     if not 0 <= float(rc["tail-margin"]) < 1:
         raise ValueError("tail-margin deve ser 0 (sem margem) ou um percentil em (0, 1)")
     if rc["dataset"] not in DATASETS:

@@ -71,8 +71,22 @@ battery-empty-policy = "drop"
 #   "none"      -> todos os dados (FedAvg)
 #   "leanfed"   -> LeanFed original: η = orçamento / A (ignora rede e custo fixo)
 #   "leanfed-c" -> LeanFed corrigido: η = (orçamento − C − D) / A
+#   "width"     -> HeteroFL: η = 1, na maior largura p de `widths` com
+#                  A·f(p) + C·s(p) + D ≤ orçamento (submodelo; o servidor agrega
+#                  cada parâmetro só com os clientes que o treinaram)
 # orçamento = bateria / participações restantes; com η = 0 o cliente pula a rodada.
 energy-policy = "none"
+# Larguras do submodelo que a política "width" pode escolher. Cada uma precisa
+# estar no perfil de energia (profile_energy.py --widths).
+widths = "1.0,0.75,0.5,0.25"
+# Os dois ajustes do HeteroFL (Diao et al., 2021), só com energy-policy = "width".
+# static-bn (sBN): a BN treina com as estatísticas do batch e não agrega as
+# running stats; o modelo global é avaliado com elas recalculadas, por isso
+# exige bn-recalibrate = true (o número que vale é o test_acc_bn).
+static-bn = true
+# width-scaler (Scaler): no treino, divide por p a entrada de cada BatchNorm do
+# submodelo de largura p, como no código do artigo.
+width-scaler = true
 # C reservado pelo leanfed-c, pela vazão da faixa do cliente:
 #   "mean"    -> custo médio
 #   "0.75"... -> percentil do custo (mais conservador quanto maior)

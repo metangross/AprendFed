@@ -38,15 +38,20 @@ from plot_run import ROOT, Run, find_run  # noqa: E402
 
 # Chaves que definem a variante, com o valor das runs anteriores a elas.
 VARIANT = {"energy-policy": "none", "comm-estimate": "mean", "eta-after-download": False,
-           "min-data-fraction": 0.0, "energy-fixed-j": 0.0, "tail-margin": 0.0}
+           "min-data-fraction": 0.0, "energy-fixed-j": 0.0, "tail-margin": 0.0,
+           "widths": "1.0,0.75,0.5,0.25", "static-bn": False, "width-scaler": False}
 # Só valem para o leanfed-c; nas outras políticas não mudam nada.
-LEANFED_C_ONLY = ("comm-estimate", "eta-after-download", "min-data-fraction")
+LEANFED_C_ONLY = ("eta-after-download", "min-data-fraction")
+# Valem para as políticas que reservam a comunicação (leanfed-c e width).
+COMM_ONLY = ("comm-estimate",)
+# Só valem para a política width (HeteroFL).
+WIDTH_ONLY = ("widths", "static-bn", "width-scaler")
 # Valem para as políticas com orçamento (leanfed e leanfed-c), não para o FedAvg.
 BUDGET_ONLY = ("tail-margin",)
 IGNORE = ("seed", "min-nodes", "data-dir", "output-dir", "bn-recalibrate")
 # Chaves de setup que as runs anteriores a elas não têm, com o valor que tinham.
 SETUP_DEFAULTS = {"dataset": "cifar10"}
-NAMES = {"none": "FedAvg", "leanfed": "LeanFed", "leanfed-c": "LeanFed-c"}
+NAMES = {"none": "FedAvg", "leanfed": "LeanFed", "leanfed-c": "LeanFed-c", "width": "HeteroFL"}
 METRICS = (  # coluna, título, formato
     ("acuracia_ultimas", "últimas", "{:.1%}"),
     ("acuracia_final", "final", "{:.1%}"),
@@ -62,6 +67,10 @@ def variant(run: Run) -> tuple:
     v = {k: run.rc.get(k, d) for k, d in VARIANT.items()}
     if v["energy-policy"] != "leanfed-c":
         v.update({k: VARIANT[k] for k in LEANFED_C_ONLY})
+    if v["energy-policy"] not in ("leanfed-c", "width"):
+        v.update({k: VARIANT[k] for k in COMM_ONLY})
+    if v["energy-policy"] != "width":
+        v.update({k: VARIANT[k] for k in WIDTH_ONLY})
     if v["energy-policy"] == "none":
         v.update({k: VARIANT[k] for k in BUDGET_ONLY})
     return tuple(v.items())

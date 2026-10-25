@@ -2,8 +2,10 @@
 
     E = A·f(p)·η·L + C·s(p) + D
 
-Por enquanto só existe a largura p = 1, então f = s = 1. Os coeficientes saem
-de grandezas físicas, na forma potência × tempo do FedLoad:
+A largura p do submodelo (HeteroFL) entra pelo perfil, que mede a potência e o
+tempo por amostra de cada largura (f medido, seção 6), e pelo número de
+parâmetros do submodelo (s). Os coeficientes saem de grandezas físicas, na
+forma potência × tempo do FedLoad:
 
     computação:   P_cmp · t_amostra / v    por amostra treinada
     comunicação:  P_rádio · bits / vazão   ao baixar e ao enviar o modelo
@@ -29,7 +31,8 @@ BATTERY_EMPTY_POLICIES = ("drop", "partial")
 #   "none"      -> treina com todos os dados (FedAvg)
 #   "leanfed"   -> LeanFed original: o custo só depende dos dados
 #   "leanfed-c" -> LeanFed corrigido: desconta a comunicação e o custo fixo
-ENERGY_POLICIES = ("none", "leanfed", "leanfed-c")
+#   "width"     -> HeteroFL: todos os dados, na maior largura que cabe (choose_width)
+ENERGY_POLICIES = ("none", "leanfed", "leanfed-c", "width")
 # Linha de base descontada da energia medida no perfil (profile_energy.py):
 # chave do perfil com P_ref e com a potência da base, e descrição para o output.
 BASELINES = {
@@ -57,6 +60,37 @@ def _read_profile(model: str, image_size: int, batch_size: int) -> dict:
     return json.loads(path.read_text())
 
 
+def parse_widths(widths) -> tuple[float, ...]:
+    """Larguras da config `widths` ("1.0,0.75,..."), da maior para a menor."""
+    try:
+        ws = sorted({float(w) for w in str(widths).split(",")}, reverse=True)
+    except ValueError:
+        ws = []
+    if not ws or not all(0 < w <= 1 for w in ws):
+        raise ValueError(f"widths deve listar larguras em (0, 1], não {widths!r}")
+    return tuple(ws)
+
+
+def width_key(width: float) -> str:
+    """Chave da largura no perfil: "1.0", "0.75", "0.5", "0.25"."""
+    return str(float(width))
+
+
+def width_profile(run_config: dict, width: float = 1.0) -> dict:
+    """Entrada de uma largura no perfil, com uma mensagem clara se não foi medida."""
+    rc = run_config
+    widths = load_profile(rc)["widths"]
+    if width_key(width) not in widths:
+        name = profile_path(str(rc["model"]), int(rc["image-size"]),
+                            int(rc["batch-size"])).name
+        raise FileNotFoundError(
+            f"A largura {width_key(width)} não está em {name}. Rode `docker compose "
+            "run --rm profiler python -m fedavg_app.profile_energy --widths "
+            f"{width_key(width)}` (com os outros containers parados)."
+        )
+    return widths[width_key(width)]
+
+
 def load_profile(run_config: dict) -> dict:
     """Perfil medido para o model/image-size/batch-size do run."""
     rc = run_config
@@ -72,7 +106,7 @@ def energy_summary(run_config: dict) -> dict:
     prof = load_profile(rc)
     width = prof["widths"]["1.0"]
     power_key, base_key, description = BASELINES[str(rc["energy-baseline"])]
-    return {
+    summary = {
         "enabled": True,
         "baseline": str(rc["energy-baseline"]),
         "baseline_description": description,
@@ -92,6 +126,18 @@ def energy_summary(run_config: dict) -> dict:
         "min_data_fraction": float(rc["min-data-fraction"]),
         "tail_margin": float(rc["tail-margin"]),
     }
+    if rc["energy-policy"] == "width":
+        summary |= {"static_bn": bool(rc["static-bn"]), "width_scaler": bool(rc["width-scaler"])}
+        # Falha já no servidor se faltar uma largura no perfil.
+        summary["widths"] = {}
+        for w in parse_widths(rc["widths"]):
+            e = width_profile(rc, w)
+            summary["widths"][width_key(w)] = {
+                "time_per_sample_s": e["time_per_sample_s"],
+                "train_power_w": e[power_key],
+                "energy_per_sample_j": e[power_key] * e["time_per_sample_s"],
+            }
+    return summary
 
 
 @dataclass(frozen=True)
@@ -107,12 +153,14 @@ class RoundEnergy:
 
 
 def round_energy(
-    run_config: dict, node_config: dict, num_params: int, server_round: int
+    run_config: dict, node_config: dict, num_params: int, server_round: int,
+    width: float = 1.0,
 ) -> RoundEnergy:
-    """Coeficientes da rodada. A vazão de cada sentido é sorteada em
-    U(1, net-mbps) Mbps, com seed (seed, rodada, partição), como no FedLoad."""
+    """Coeficientes da rodada para o (sub)modelo de largura `width` e `num_params`
+    parâmetros. A vazão de cada sentido é sorteada em U(1, net-mbps) Mbps, com
+    seed (seed, rodada, partição), como no FedLoad: é a mesma em qualquer largura."""
     rc, nc = run_config, node_config
-    prof = load_profile(rc)["widths"]["1.0"]
+    prof = width_profile(rc, width)
     power_key = BASELINES[str(rc["energy-baseline"])][0]
     p_cmp = float(prof[power_key]) * float(nc.get("power-factor", 1.0))
     speed = float(nc.get("compute-speed", 1.0))
@@ -170,6 +218,16 @@ def expected_comm(node_config: dict, num_params: int, estimate="mean") -> float:
     return 2 * radio * 32 * num_params * inv_bw / 1e6
 
 
+def choose_width(widths: tuple[float, ...], budget: float, cost) -> float | None:
+    """HeteroFL dinâmico: a maior largura cuja rodada com todos os dados cabe no
+    orçamento (seção 5.2, "só largura"); None se nenhuma cabe e o cliente pula.
+
+    `cost(w)` é a energia prevista da rodada completa na largura w (computação
+    + comunicação reservada + custo fixo).
+    """
+    return next((w for w in widths if cost(w) <= budget), None)
+
+
 def data_fraction(policy: str, budget: float, compute: float, comm: float,
                   fixed: float) -> float:
     """Fração η dos dados locais que cabe no orçamento `budget` da rodada.
@@ -178,7 +236,7 @@ def data_fraction(policy: str, budget: float, compute: float, comm: float,
     original supõe que o custo é só a computação; o corrigido reserva antes a
     comunicação e o custo fixo, que não diminuem com η.
     """
-    if policy == "none":
+    if policy in ("none", "width"):
         return 1.0
     if policy == "leanfed":
         eta = budget / compute

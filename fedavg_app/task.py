@@ -43,16 +43,17 @@ def get_device() -> torch.device:
 
 
 class Net(nn.Module):
-    """CNN simples para imagens 3x32x32."""
+    """CNN simples para imagens 3x32x32. `width` escala os canais e a fc1."""
 
-    def __init__(self, num_classes: int = 10) -> None:
+    def __init__(self, num_classes: int = 10, width: float = 1.0) -> None:
         super().__init__()
-        self.conv1 = nn.Conv2d(3, 32, 3, padding=1)
-        self.conv2 = nn.Conv2d(32, 64, 3, padding=1)
-        self.conv3 = nn.Conv2d(64, 128, 3, padding=1)
+        c1, c2, c3, h = (max(1, round(c * width)) for c in (32, 64, 128, 256))
+        self.conv1 = nn.Conv2d(3, c1, 3, padding=1)
+        self.conv2 = nn.Conv2d(c1, c2, 3, padding=1)
+        self.conv3 = nn.Conv2d(c2, c3, 3, padding=1)
         self.pool = nn.MaxPool2d(2, 2)
-        self.fc1 = nn.Linear(128 * 4 * 4, 256)
-        self.fc2 = nn.Linear(256, num_classes)
+        self.fc1 = nn.Linear(c3 * 4 * 4, h)
+        self.fc2 = nn.Linear(h, num_classes)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.pool(F.relu(self.conv1(x)))
@@ -83,25 +84,77 @@ MODELS = ("cnn", "mobilenet_v3_small")
 
 
 def get_model(name: str, pretrained: bool = False, image_size: int = 32,
-              dataset: str = "cifar10") -> nn.Module:
+              dataset: str = "cifar10", width: float = 1.0) -> nn.Module:
     """Cria o modelo. Servidor e clientes devem usar os mesmos argumentos
-    (exceto `pretrained`, que só importa para os pesos iniciais no servidor)."""
+    (exceto `pretrained`, que só importa para os pesos iniciais no servidor).
+
+    `width` < 1 dá o submodelo do HeteroFL: cada tensor dele é o prefixo do
+    tensor correspondente no modelo completo (submodel_state).
+    """
     num_classes = NUM_CLASSES[dataset]
+    if pretrained and width != 1.0:
+        raise ValueError("Pesos pré-treinados só existem para o modelo completo")
     if name == "cnn":
         if pretrained:
             raise ValueError("O modelo 'cnn' não tem pesos pré-treinados")
-        net: nn.Module = Net(num_classes)
+        net: nn.Module = Net(num_classes, width)
     elif name == "mobilenet_v3_small":
         from torchvision.models import MobileNet_V3_Small_Weights, mobilenet_v3_small
 
         weights = MobileNet_V3_Small_Weights.IMAGENET1K_V1 if pretrained else None
-        net = mobilenet_v3_small(weights=weights)
+        # O torchvision não aceita width_mult com pesos; o completo é o padrão (1,0).
+        net = (mobilenet_v3_small(weights=weights) if width == 1.0
+               else mobilenet_v3_small(width_mult=width))
         # Troca a última camada (1000 classes do ImageNet) pela do dataset.
         net.classifier[3] = nn.Linear(net.classifier[3].in_features, num_classes)
     else:
         raise ValueError(f"Modelo desconhecido: {name!r}. Opções: {MODELS}")
     # O FEMNIST (1x28x28) sempre passa pelo Resize; o CIFAR-10 só se for ampliado.
     return Resize(net, image_size) if image_size != 32 or dataset != "cifar10" else net
+
+
+def submodel(name: str, image_size: int, dataset: str, width: float) -> nn.Module:
+    """Submodelo sem tocar nas RNGs globais: os pesos aleatórios dele são trocados
+    pelo recorte do modelo global, e o sorteio dos batches continua o mesmo
+    em qualquer largura."""
+    with torch.random.fork_rng(devices=[]):
+        return get_model(name, image_size=image_size, dataset=dataset, width=width)
+
+
+@lru_cache(maxsize=16)
+def num_params(name: str, image_size: int, dataset: str, width: float) -> int:
+    """Parâmetros do submodelo de largura `width` (o que ele envia e recebe)."""
+    return sum(t.numel() for t in submodel(name, image_size, dataset, width).parameters())
+
+
+def static_bn(net: nn.Module) -> None:
+    """sBN do HeteroFL: a BatchNorm treina com as estatísticas do batch e não
+    acumula running_mean/var, que voltam ao servidor como vieram. O modelo
+    global é avaliado com as estatísticas recalculadas (recalibrate_bn)."""
+    for m in net.modules():
+        if isinstance(m, nn.modules.batchnorm._BatchNorm):
+            m.track_running_stats = False
+
+
+def add_scaler(net: nn.Module, width: float) -> None:
+    """Scaler do HeteroFL: no treino, divide por `width` a entrada de cada
+    BatchNorm do submodelo, como no código do artigo (`n1(scaler(x))`); camadas
+    sem normalização depois, como o classificador, não são escaladas. Na
+    avaliação não faz nada. Fica em hooks, fora do state_dict, então o recorte e
+    a agregação não mudam."""
+    def scale(module: nn.Module, inputs: tuple) -> tuple | None:
+        return (inputs[0] / width, *inputs[1:]) if module.training else None
+
+    for m in net.modules():
+        if isinstance(m, nn.modules.batchnorm._BatchNorm):
+            m.register_forward_pre_hook(scale)
+
+
+def submodel_state(full: dict[str, torch.Tensor], net: nn.Module) -> dict[str, torch.Tensor]:
+    """Recorte do estado do modelo completo no formato de `net` (HeteroFL): o
+    prefixo de cada tensor, em todas as dimensões."""
+    shapes = {k: v.shape for k, v in net.state_dict().items()}
+    return {k: v[tuple(slice(0, n) for n in shapes[k])] for k, v in full.items()}
 
 
 # --------------------------------------------------------------------------- #

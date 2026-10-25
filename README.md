@@ -344,6 +344,7 @@ pelas participações restantes esperadas (`fraction-train` × rodadas que falta
 | `none` (padrão) | 1 | FedAvg: treina tudo até a bateria acabar |
 | `leanfed` | orçamento / A | LeanFed original: supõe que o custo é só a computação; com rede cara, os clientes ainda morrem |
 | `leanfed-c` | (orçamento − C − D) / A | LeanFed corrigido: reserva antes a comunicação (pela vazão esperada da faixa) e o custo fixo |
+| `width` | 1 | HeteroFL: treina todos os dados num submodelo, na maior largura que cabe no orçamento (ver abaixo) |
 
 A é a energia de treinar todos os dados locais. O subconjunto é sorteado a cada
 rodada, com seed. Com η = 0, o cliente **pula a rodada** sem gastar nada (decide
@@ -388,6 +389,38 @@ as classes dele do mesmo jeito.
 
 ```bash
 ./run.sh -c "energy=true energy-policy='leanfed-c' tail-margin=0.9"
+```
+
+**Submodelos (HeteroFL).** Com `energy-policy='width'`, o cliente reduz o
+modelo em vez dos dados: a cada rodada, usa a maior largura p de `widths`
+(padrão `"1.0,0.75,0.5,0.25"`) em que a rodada com todos os dados cabe no
+orçamento, A·f(p) + C·s(p) + D; se nenhuma cabe, pula a rodada. O submodelo de
+largura p (`width_mult` da MobileNetV3, canais escalados na CNN) é o prefixo de
+cada tensor do modelo completo. O servidor manda o modelo completo, mas o
+cliente fica com o recorte e paga a rede só por ele, como se o servidor mandasse
+só o recorte. Na agregação, cada parâmetro é a média ponderada dos clientes que
+o treinaram; o que ninguém treinou fica como estava. A comunicação s(p) sai do
+número de parâmetros do submodelo; a computação f(p), do perfil, que precisa
+ter cada largura (`--widths`, que acrescenta ao perfil sem mudar as larguras
+já medidas). Os `.jsonl` registram a `width` escolhida (0 quando pula).
+`comm-estimate` e `tail-margin` valem como no `leanfed-c`.
+
+Os dois ajustes do artigo do HeteroFL vêm ligados. Com `static-bn` (sBN), a
+BatchNorm de todos os clientes treina com as estatísticas do batch e não
+acumula `running_mean`/`running_var`. O servidor avalia o modelo global com
+elas recalculadas numa amostra dos dados dos clientes, então a política exige
+`bn-recalibrate=true`, e o número que vale é o `test_acc_bn`. Sem o sBN, a média
+das estatísticas de larguras diferentes derruba a acurácia para perto do acaso.
+Com `width-scaler` (Scaler), no treino de um submodelo de largura p a entrada
+de cada BatchNorm é dividida por p, como no código do artigo (o classificador,
+sem normalização depois, não é escalado); na avaliação não faz nada. Como a
+BatchNorm treina com as estatísticas do batch, o Scaler nessa posição quase
+não muda o treino.
+
+```bash
+docker compose run --rm profiler python -m fedavg_app.profile_energy \
+    --model mobilenet_v3_small --image-size 96 --widths 0.75,0.5,0.25
+./run.sh -c "energy=true energy-policy='width' bn-recalibrate=true"
 ```
 
 Cada rodada desconta, nesta ordem, o custo fixo e o download, a computação

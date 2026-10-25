@@ -18,8 +18,25 @@ from flwr.clientapp import ClientApp
 from torch import randperm
 from torch.utils.data import DataLoader, Subset
 
-from fedavg_app.energy import data_fraction, expected_comm, round_energy
-from fedavg_app.task import get_device, get_model, load_partition, set_seed, test
+from fedavg_app.energy import (
+    choose_width,
+    data_fraction,
+    expected_comm,
+    parse_widths,
+    round_energy,
+)
+from fedavg_app.task import (
+    get_device,
+    get_model,
+    load_partition,
+    num_params as width_params,
+    add_scaler,
+    set_seed,
+    static_bn,
+    submodel,
+    submodel_state,
+    test,
+)
 from fedavg_app.task import train as train_fn
 
 app = ClientApp()
@@ -158,11 +175,38 @@ def train(msg: Message, context: Context) -> Message:
         # Abaixo de min-data-fraction, a rede domina o custo: guarda a energia para
         # participar depois com mais dados. Na última participação não há depois.
         min_k = float(rc["min-data-fraction"]) * num_examples if not last else 0.0
-        compute = cost.per_sample * num_examples * int(rc["local-epochs"])
+        epochs = int(rc["local-epochs"])
+        compute = cost.per_sample * num_examples * epochs
         estimate = tail if tail > 0 and last else rc["comm-estimate"]
         comm = expected_comm(nc, num_params, estimate)
         eta = data_fraction(str(rc["energy-policy"]), round_budget, compute, comm,
                             cost.fixed)
+        if rc["energy-policy"] == "width":
+            # HeteroFL: todos os dados, na maior largura que cabe no orçamento.
+            arch = (str(rc["model"]), int(rc["image-size"]), str(rc["dataset"]))
+
+            def full_round(w: float) -> float:
+                n = width_params(*arch, w)
+                c = round_energy(rc, nc, n, server_round, w)
+                return (c.per_sample * num_examples * epochs + expected_comm(nc, n, estimate)
+                        + c.fixed)
+
+            width = choose_width(parse_widths(rc["widths"]), round_budget, full_round)
+            eta = 1.0 if width else 0.0
+            energy_log["width"] = width or 0.0
+            if width and width < 1.0:
+                # O servidor manda o modelo completo; o cliente fica com o recorte
+                # e paga a rede só por ele, como se o servidor mandasse só o recorte.
+                full = net.state_dict()
+                net = submodel(*arch, width)
+                net.load_state_dict(submodel_state(full, net))
+                num_params = width_params(*arch, width)
+                cost = round_energy(rc, nc, num_params, server_round, width)
+                comm = expected_comm(nc, num_params, estimate)
+                if rc["width-scaler"]:
+                    add_scaler(net, width)
+            if rc["static-bn"]:
+                static_bn(net)  # em todas as larguras, como no HeteroFL
         k = math.floor(eta * num_examples)
         energy_log |= {"round_budget_j": round_budget, "comm_reserved_j": comm,
                        "data_fraction": k / num_examples}
@@ -181,7 +225,7 @@ def train(msg: Message, context: Context) -> Message:
             _log_metrics(msg, context, "train", {"status": "depleted", **energy_log,
                                                  "battery_after": 0.0, "energy_j": battery})
             return _no_battery(msg, "bateria acabou ao baixar o modelo")
-    if lean and rc["eta-after-download"]:
+    if lean and rc["eta-after-download"] and rc["energy-policy"] != "width":
         # Já baixou: refaz η com o download real e só o upload estimado.
         comm = cost.download + expected_comm(nc, num_params, rc["comm-estimate"]) / 2
         eta = data_fraction(str(rc["energy-policy"]), round_budget, compute, comm,
