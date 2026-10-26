@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Gera docs/resultados.pdf (resultados consolidados do AprendFed até 24/10/2026).
+"""Gera docs/resultados.pdf (resultados consolidados do AprendFed até 25/10/2026).
 
 Uso:
     python3 docs/fontes/resultados.py [saida.pdf]
@@ -334,6 +334,24 @@ RADIO_HETERO_LOGS = {
     (2.7, 1.8, 0.9): ((558, 25.6, 6.97, 4.98, 296, 1.4, 119),
                       (577, 30.0, 6.78, 5.17, 284, 1.2, 131)),
 }
+# HeteroFL contra LeanFed-c e fração 0,5 (CIFAR-10, α = 0,1), todos com a BatchNorm
+# recalibrada (test_acc_bn): acurácia média das 3 últimas rodadas e máxima, seeds 42 a 49.
+HETERO = {
+    "HeteroFL": ((0.7224, 0.6308, 0.6016, 0.7154, 0.7342, 0.6985, 0.6216, 0.6938),
+                 (0.7275, 0.6823, 0.6555, 0.7465, 0.7363, 0.7192, 0.6857, 0.7145)),
+    "LeanFed-c": ((0.8004, 0.6627, 0.7371, 0.7482, 0.7919, 0.7249, 0.7586, 0.7503),
+                  (0.8140, 0.7268, 0.7659, 0.7927, 0.7990, 0.7653, 0.7635, 0.7683)),
+    "fração mínima 0,5": ((0.8100, 0.7229, 0.7748, 0.8057, 0.8112, 0.7680, 0.7831, 0.7634),
+                          (0.8273, 0.7829, 0.7862, 0.8262, 0.8131, 0.8152, 0.7881, 0.8061)),
+}
+# Como CAUSE_LOGS, sem os exemplos por rodada: exemplos em 20 rodadas e no modelo completo
+# (mil), rede e treino (kJ), participações, sem bateria no fim, exemplos dos clientes de
+# 500 J (mil).
+HETERO_LOGS = {
+    "HeteroFL": (780, 348, 5.24, 5.89, 297, 0.8, 228),
+    "LeanFed-c": (505, 505, 6.71, 4.51, 285, 1.6, 38),
+    "fração mínima 0,5": (563, 563, 6.15, 5.04, 260, 1.2, 91),
+}
 # Fração média dos exemplos de treino nos clientes que o FedAvg perde.
 DATA_LOST = {"CIFAR-10, α = 0,05": 0.578, "CIFAR-10, α = 0,1": 0.548,
              "CIFAR-10, α = 0,3": 0.450, "CIFAR-10, α = 1,0": 0.406,
@@ -619,6 +637,21 @@ def radio_hetero_rows():
     return rows
 
 
+def hetero_rows():
+    rows = []
+    for name, (acc, peak) in HETERO.items():
+        total, full, net, train, part, dead, _ = HETERO_LOGS[name]
+        rows.append([name, mean_sd(acc), mean_sd(peak), f"{br(total, 0)} mil ({br(full, 0)})",
+                     f"{br(net, 2)} / {br(train, 2)}", br(part, 0), br(dead)])
+    return rows
+
+
+def hetero_gain_rows():
+    h = HETERO["HeteroFL"][0]
+    return [[f"HeteroFL − {name}", paired(h, HETERO[name][0])]
+            for name in ("LeanFed-c", "fração mínima 0,5")]
+
+
 def build() -> list:
     s = []
     s += [
@@ -627,7 +660,8 @@ def build() -> list:
         P("LeanFed-c contra FedAvg com bateria limitada: o que os experimentos mostram",
           "sub"),
         P("Até 25 de outubro de 2026 — CIFAR-10 e FEMNIST com 8 seeds — branch "
-          "<i>leanfed-baseline</i> (commit 86ab3a9)",
+          "<i>leanfed-baseline</i> (commit 86ab3a9); HeteroFL na branch <i>heterofl</i> "
+          "(commit f13bb77)",
           "sub"),
         Spacer(1, 12),
         note("<b>Resumo.</b> Com bateria simulada e custo de comunicação realista, o "
@@ -661,14 +695,19 @@ def build() -> list:
              "Entre "
              "cenários, o ganho acompanha a fração de classes concentradas nos clientes que "
              "o FedAvg perde por falta de bateria, e não a quantidade de dados que esses "
-             "clientes levam; seed a seed, essa fração não prevê o ganho."),
+             "clientes levam; seed a seed, essa fração não prevê o ganho. "
+             "Reduzir o modelo em vez dos dados (<b>HeteroFL</b>, submodelos de largura "
+             "variável) <b>perde</b> no α = 0,1: 67,7% contra 74,7% do LeanFed-c e 78,0% da "
+             "fração 0,5, abaixo dos dois nas 8 seeds. Ele treina mais exemplos (780 mil, "
+             "contra 563 mil), mas só 348 mil passam pelo modelo completo."),
         P("<b>Conteúdo</b>"),
         bullets([
             "1. Cenário, políticas e métricas",
             "2. O LeanFed-c ganha porque não perde clientes no fim",
             "3. Ajustes do LeanFed-c: a fração mínima ajuda em todos os cenários",
             "4. O ganho depende da concentração de classes",
-            "5. Conclusões, limitações e próximos passos",
+            "5. Reduzir o modelo (HeteroFL) perde para reduzir os dados",
+            "6. Conclusões, limitações e próximos passos",
             "Apêndice A. Runs e como reproduzir",
         ]),
         P("A ordem dos experimentos e o motivo de cada decisão estão em "
@@ -696,6 +735,8 @@ def build() -> list:
                  "LeanFed original: supõe que só o treino gasta energia"],
                 ["LeanFed-c", "(orçamento − C − D) / A",
                  "LeanFed corrigido: reserva antes a rede (C) e o custo fixo (D)"],
+                ["HeteroFL", "1, num submodelo de largura p",
+                 "reduz o modelo em vez dos dados (seção 5)"],
             ],
             [1.0, 1.8, 3],
         ),
@@ -706,7 +747,8 @@ def build() -> list:
         bullets([
             "<b>Acurácia</b>: média da acurácia no teste nas <b>3 últimas rodadas</b>. A "
             "da última rodada sozinha oscila vários pontos conforme quais clientes ainda "
-            "estão vivos. No FEMNIST, medida com a BatchNorm recalibrada (abaixo).",
+            "estão vivos. No FEMNIST e na comparação com o HeteroFL (seção 5), medida com "
+            "a BatchNorm recalibrada (abaixo).",
             "<b>Ganho</b>: acurácia do LeanFed-c menos a do FedAvg <b>com a mesma seed</b> "
             "(mesma partição e mesma sequência de vazões), com intervalo de confiança de "
             "95% pela t de Student sobre as diferenças pareadas.",
@@ -736,7 +778,7 @@ def build() -> list:
              "fração mínima 0,5 ficaria em último (62,7% contra 69,5% do FedAvg); por "
              "escritor, em primeiro (78,8% contra 74,6%). No CIFAR-10, as quedas de acurácia "
              "são reais (vêm dos clientes que saem) e recalibrar não as recupera; ele usa a "
-             "avaliação original."),
+             "avaliação original, fora da seção 5."),
     ]
 
     # 2 ----------------------------------------------------------------
@@ -1140,7 +1182,109 @@ def build() -> list:
 
     # 5 ----------------------------------------------------------------
     s += [
-        H1("5. Conclusões, limitações e próximos passos"),
+        # A seção começa no alto da página, com a tabela das larguras.
+        KeepTogether([
+            H1("5. Reduzir o modelo (HeteroFL) perde para reduzir os dados"),
+            P("O LeanFed-c e a fração mínima cabem no orçamento <b>treinando menos "
+              "dados</b>. A alternativa é <b>treinar um modelo menor</b>, como no HeteroFL "
+              "(Diao et al., 2021): cada cliente treina todos os seus dados num submodelo "
+              "de largura p, que é o prefixo de cada tensor do modelo completo (os "
+              "primeiros canais de cada camada). Na MobileNetV3, esse submodelo é o "
+              "<i>width_mult = p</i> do torchvision. Ele custa menos para treinar e para "
+              "transmitir:"),
+            table(
+                ["Largura p", "Parâmetros", "MACs", "Energia de treino por amostra",
+                 "Rede por rodada (média)"],
+                [
+                    ["1", "100%", "100%", "100% (8,88 mJ)", "23,6 J"],
+                    ["3/4", "58,4%", "68,2%", "85,2%", "13,8 J"],
+                    ["1/2", "26,8%", "32,7%", "68,2%", "6,3 J"],
+                    ["1/4", "7,8%", "15,1%", "52,2%", "1,8 J"],
+                ],
+                [0.9, 1.0, 0.8, 1.8, 1.6],
+            ),
+        ]),
+        P("A energia por amostra vem do mesmo perfil da GPU, medido para cada largura. A "
+          "GPU aproveita mal os modelos pequenos: com 15% das operações, a largura 1/4 "
+          "ainda gasta metade da energia de treino. A rede cai com os parâmetros, porque o "
+          "cliente só paga o recorte (por simplificação, o servidor manda o modelo "
+          "completo e o cliente corta)."),
+        P("<b>Política.</b> A cada rodada, o cliente escolhe a <b>maior largura</b> entre "
+          "1, 3/4, 1/2 e 1/4 cuja rodada completa (rede + treino de todos os dados) cabe "
+          "no orçamento do LeanFed-c; se nenhuma cabe, pula a rodada. É a versão dinâmica "
+          "do HeteroFL; a original fixa a largura de cada cliente pela capacidade dele. O "
+          "servidor tira a média de cada elemento dos tensores entre os clientes cujo "
+          "submodelo o contém, pesada pelos exemplos, e mantém o valor anterior onde "
+          "ninguém treinou."),
+        P("<b>BatchNorm.</b> Como no código do artigo, as camadas BatchNorm treinam com as "
+          "estatísticas do lote, sem acumular médias (<i>static-bn</i>), e o modelo global "
+          "é avaliado com elas recalibradas (seção 1). Antes de cada BatchNorm de um "
+          "submodelo, a entrada é dividida por p (<i>Scaler</i>). Para comparar na mesma "
+          "medida, nesta seção o LeanFed-c e a fração 0,5 também são avaliados com a "
+          "BatchNorm recalibrada. Para eles, isso muda pouco: 74,7% e 78,0%, contra 74,8% "
+          "e 77,3% na avaliação original."),
+        H2("Validação na seed 42"),
+        bullets([
+            "<b>Só com p = 1</b>, a política é a fração mínima 1,0 (treina tudo ou pula), e "
+            "a run reproduz a dela bit a bit, em todas as rodadas e clientes. Com o "
+            "<i>static-bn</i> e p = 1, os pesos também são os mesmos: ele só muda a "
+            "avaliação (82,5% com a BatchNorm recalibrada).",
+            "<b>Sem os ajustes da BatchNorm, o modelo colapsa</b>: 22,2% nas 3 últimas "
+            "rodadas, porque a média das estatísticas acumuladas mistura larguras "
+            "diferentes. Recalibrando só o modelo final, ele sobe para 70,6%.",
+            "<b>Com os ajustes</b>: 70,9% só com o <i>static-bn</i> e <b>72,2%</b> com o "
+            "<i>static-bn</i> e o Scaler, a configuração do artigo, usada nas 8 seeds. "
+            "Ainda 10 pontos abaixo da fração 1,0 com a mesma medida (82,5%).",
+        ]),
+        KeepTogether([
+            H2("Resultado com 8 seeds"),
+            table(
+                ["α = 0,1, BatchNorm recalibrada", "Média das 3 últimas", "Acurácia máxima",
+                 "Exemplos em 20 rodadas (no modelo completo)", "Rede / treino (kJ)",
+                 "Particip.", "Sem bateria no fim"],
+                hetero_rows(),
+                [1.25, 1.1, 1.1, 1.35, 1.0, 0.9, 0.8],
+            ),
+        ]),
+        table(
+            ["Diferença pareada", "Pontos [IC 95%], seeds em que o HeteroFL ganha"],
+            hetero_gain_rows(),
+            [2.2, 3.0],
+        ),
+        bullets([
+            "<b>O HeteroFL perde nas 8 seeds</b>: −6,9 pontos para o LeanFed-c (t pareado, "
+            "p = 0,003) e −10,3 para a fração 0,5 (p &lt; 0,001). O pico também é menor "
+            "(70,8% contra 77,4% e 80,6%). As perdas vão de −2,6 a −13,7 pontos para o "
+            "LeanFed-c; as maiores são as das seeds 44 e 48 (−13,5 e −13,7).",
+            "<b>Ele não perde por falta de energia nem de participação.</b> Gasta o mesmo "
+            "(11,1 kJ, contra 11,2 kJ), participa mais (297 de 300 possíveis) e deixa "
+            "menos clientes sem bateria (0,8). Como o submodelo transmite menos, a rede cai "
+            "para 5,2 kJ e sobra mais energia para o treino (5,9 kJ, contra 4,5 e 5,0).",
+            "<b>Treina mais exemplos, mas em modelos menores.</b> São 780 mil exemplos em "
+            "20 rodadas, contra 505 mil no LeanFed-c e 563 mil na fração 0,5, quase todos "
+            "os dados em toda rodada. Só 348 mil passam pelo modelo completo: 59% das "
+            "participações são com p = 1, 21% com 3/4, 13% com 1/2 e 6% com 1/4.",
+            "<b>Os clientes de 500 J ficam quase sempre nos submodelos</b>: treinam 228 mil "
+            "exemplos (38 mil no LeanFed-c, 91 mil na fração 0,5), mas 83% das "
+            "participações deles são com p &lt; 1 (33% com 3/4, 31% com 1/2, 19% com 1/4).",
+            "<b>O ganho de \"mais exemplos\" da seção 3 não passa para os submodelos.</b> "
+            "Contando só os exemplos no modelo completo, a ordem bate com a da acurácia "
+            "(348, 505 e 563 mil para 67,7%, 74,7% e 78,0%). A hipótese é que, com "
+            "Dirichlet α = 0,1, as classes dos clientes de 500 J chegam só aos canais do "
+            "prefixo, e o resto do modelo completo aprende quase só com os clientes de "
+            "mais bateria. A acurácia por classe ainda não foi medida.",
+        ]),
+        note("<b>Diferenças para o HeteroFL do artigo.</b> A largura muda a cada rodada "
+             "conforme a bateria, em vez de ser fixa por cliente. A máscara de rótulos do "
+             "código do artigo no não-IID (a saída só considera as classes do cliente) não "
+             "foi implementada, porque mudaria o treino das outras políticas também. E a "
+             "economia de energia dos submodelos é a de uma GPU de desktop; num celular, "
+             "treinar a largura 1/4 pode custar bem menos que metade."),
+    ]
+
+    # 6 ----------------------------------------------------------------
+    s += [
+        H1("6. Conclusões, limitações e próximos passos"),
         H2("O que já se pode afirmar"),
         bullets([
             "Com comunicação realista, o LeanFed original não é melhor que o FedAvg. A "
@@ -1172,6 +1316,11 @@ def build() -> list:
             "pontos com 0,9, 1,8 e 2,7 W, na fração 0,5). Com o rádio desigual entre "
             "clientes, ele depende de quem paga a rede cara: +1,6 se são os de menos "
             "bateria, +0,5 se são os de mais.",
+            "Reduzir o modelo em vez dos dados não compensa neste cenário: o HeteroFL "
+            "dinâmico, com os ajustes da BatchNorm do artigo, fica 6,9 pontos abaixo do "
+            "LeanFed-c e 10,3 abaixo da fração 0,5 no α = 0,1 (8 de 8 seeds), embora treine "
+            "mais exemplos com a mesma energia. O que conta é quantos exemplos passam pelo "
+            "modelo completo.",
             "Para comparar políticas, usar a média das últimas rodadas e várias seeds; a "
             "acurácia de uma rodada e de uma seed é ruído. Três seeds não bastam: no "
             "α = 0,1, as seeds 42 a 44 deram o dobro do ganho do LeanFed-c medido com 8, e "
@@ -1204,8 +1353,9 @@ def build() -> list:
             "um celular.",
             "As mortes no fim por uma rodada de rede ruim continuam sem solução: a margem "
             "de cauda troca a morte por rodadas puladas.",
-            "Só existe o modelo completo: os submodelos de largura variável ainda não "
-            "foram implementados.",
+            "O HeteroFL só foi medido no α = 0,1 do CIFAR-10, só na versão dinâmica e sem "
+            "a máscara de rótulos do artigo, com o perfil de energia da GPU, em que os "
+            "submodelos economizam pouco treino (seção 5).",
         ]),
         H2("Próximos passos"),
         bullets([
@@ -1215,8 +1365,10 @@ def build() -> list:
             "fração mínima ganha fazendo o contrário.",
             "Variar o setup (faixa de rede por cliente, baterias, recarga) para ver se a "
             "vantagem se mantém.",
-            "Submodelos de largura variável (HeteroFL), para comparar \"reduzir dados\" "
-            "(LeanFed-c) com \"reduzir modelo\".",
+            "Medir a acurácia por classe do HeteroFL, para testar se as classes dos "
+            "clientes de 500 J ficam só no prefixo do modelo (seeds 44 e 48, as piores).",
+            "Testar se o HeteroFL melhora com só as larguras grandes (1 e 3/4), com a "
+            "largura fixa por cliente do artigo ou com um perfil de energia de celular.",
             "Para decidir: um terceiro dataset como o EuroSAT só faz sentido se a "
             "dissertação mirar sensoriamento remoto, porque repete a condição do CIFAR-10 "
             "(10 classes, sem partição natural).",
@@ -1229,8 +1381,10 @@ def build() -> list:
         P("Pastas em <i>outputs/</i> (prefixo do id). Todas com o cenário da seção 1; "
           "cada linha muda só o que o nome diz. As runs do FEMNIST são as com "
           "<i>bn-recalibrate=true</i> (lote de 23/10), que repetem as anteriores com a "
-          "mesma acurácia original e acrescentam a recalibrada. As demais runs estão no "
-          "apêndice do histórico."),
+          "mesma acurácia original e acrescentam a recalibrada. As da seção 5 também (lote "
+          "de 25/10, código da branch <i>heterofl</i>); as do LeanFed-c e da fração 0,5 "
+          "repetem as da seção 3 com a mesma acurácia original, bit a bit. As demais runs "
+          "estão no apêndice do histórico."),
         table(
             ["Cenário e política", "Seed 42", "Seed 43", "Seed 44"],
             [
@@ -1283,6 +1437,9 @@ def build() -> list:
                 ["FEMNIST Dirichlet: FedAvg", "12511…", "15898…", "72012…"],
                 ["FEMNIST Dirichlet: LeanFed-c", "88227…", "19479…", "59824…"],
                 ["FEMNIST Dirichlet: fração mínima 0,5", "45006…", "95189…", "12909…"],
+                ["Seção 5: HeteroFL", "15138…", "86454…", "94847…"],
+                ["Seção 5: LeanFed-c", "11947…", "96813…", "36729…"],
+                ["Seção 5: fração mínima 0,5", "12734…", "10894…", "45556…"],
             ],
             [2.4, 1.2, 1.2, 1.2],
             split=True,
@@ -1362,10 +1519,17 @@ def build() -> list:
                  "18339…"],
                 ["FEMNIST Dirichlet: fração mínima 0,5", "19907…", "77329…", "16194…",
                  "15101…", "59879…"],
+                ["Seção 5: HeteroFL", "12242…", "52334…", "12191…", "18365…", "22798…"],
+                ["Seção 5: LeanFed-c", "13599…", "97546…", "75654…", "37169…", "98855…"],
+                ["Seção 5: fração mínima 0,5", "16110…", "61626…", "94603…", "17376…",
+                 "17441…"],
             ],
             [2.4, 1, 1, 1, 1, 1],
             split=True,
         ),
+        P("Validação do HeteroFL na seed 42 (seção 5): só p = 1, 12047…; sem os ajustes da "
+          "BatchNorm, 37524…; só <i>static-bn</i>, 12564…; p = 1 com <i>static-bn</i>, "
+          "68622…"),
         P("Com os containers de pé (<i>./run.sh -n 15 -b 1500,1000,500 --net-mbps 25</i>):"),
         code("""
 # lotes (um por cenário)
@@ -1384,6 +1548,9 @@ def build() -> list:
 ./scripts/run_seeds.sh -d cifar10-a0.3 -v leanfed-c-mdf0.5 42 43 44 45 46 47 48 49
 ./scripts/run_seeds.sh -d femnist -x "bn-recalibrate=true" \\
     -v fedavg,leanfed-c,leanfed-c-mdf0.5 42 43 44 45 46 47 48 49   # ou -d femnist-dirichlet
+# HeteroFL (branch heterofl; o perfil das larguras: profile_energy --widths 0.75,0.5,0.25)
+./scripts/run_seeds.sh -x "bn-recalibrate=true" \\
+    -v heterofl,leanfed-c,leanfed-c-mdf0.5 42 43 44 45 46 47 48 49
 # média ± desvio, classes perdidas e ganho pareado (o --ref escolhe o cenário)
 python3 scripts/seeds_summary.py --ref 1977  -o graficos/seeds         # α = 0,1 e variantes
 python3 scripts/seeds_summary.py --ref 5626  -o graficos/seeds-sem-radio
@@ -1394,6 +1561,7 @@ python3 scripts/class_loss.py    --ref 11428 -o graficos/seeds-alfa-0.3
 python3 scripts/seeds_summary.py --bn --ref 38162 -o graficos/seeds-femnist-dirichlet
 python3 scripts/class_loss.py    --bn --ref 38162 -o graficos/seeds-femnist-dirichlet
 python3 scripts/seeds_summary.py --bn --ref 10788 -o graficos/seeds-femnist   # escritor
+python3 scripts/seeds_summary.py --bn --ref 1977 -o graficos/seeds-heterofl
 # acurácia por classe do final_model.pt e parte de cada classe por bateria (na CPU)
 docker run --rm -v aprendfed_data:/data:ro -v "$PWD":/app:ro aprendfed:latest \\
     python scripts/class_accuracy.py [--bn] outputs/run-<id>-<data> ...
