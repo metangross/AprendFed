@@ -339,6 +339,8 @@ RADIO_HETERO_LOGS = {
 HETERO = {
     "HeteroFL": ((0.7224, 0.6308, 0.6016, 0.7154, 0.7342, 0.6985, 0.6216, 0.6938),
                  (0.7275, 0.6823, 0.6555, 0.7465, 0.7363, 0.7192, 0.6857, 0.7145)),
+    "HeteroFL, 1 e 3/4": ((0.7483, 0.6566, 0.6876, 0.7492, 0.7806, 0.7067, 0.7158, 0.7707),
+                          (0.7599, 0.7075, 0.7058, 0.7792, 0.7908, 0.7408, 0.7426, 0.7830)),
     "LeanFed-c": ((0.8004, 0.6627, 0.7371, 0.7482, 0.7919, 0.7249, 0.7586, 0.7503),
                   (0.8140, 0.7268, 0.7659, 0.7927, 0.7990, 0.7653, 0.7635, 0.7683)),
     "fração mínima 0,5": ((0.8100, 0.7229, 0.7748, 0.8057, 0.8112, 0.7680, 0.7831, 0.7634),
@@ -349,6 +351,7 @@ HETERO = {
 # 500 J (mil).
 HETERO_LOGS = {
     "HeteroFL": (780, 348, 5.24, 5.89, 297, 0.8, 228),
+    "HeteroFL, 1 e 3/4": (676, 371, 5.47, 5.62, 271, 0.6, 144),
     "LeanFed-c": (505, 505, 6.71, 4.51, 285, 1.6, 38),
     "fração mínima 0,5": (563, 563, 6.15, 5.04, 260, 1.2, 91),
 }
@@ -647,9 +650,10 @@ def hetero_rows():
 
 
 def hetero_gain_rows():
-    h = HETERO["HeteroFL"][0]
-    return [[f"HeteroFL − {name}", paired(h, HETERO[name][0])]
-            for name in ("LeanFed-c", "fração mínima 0,5")]
+    pairs = [("HeteroFL", "LeanFed-c"), ("HeteroFL", "fração mínima 0,5"),
+             ("HeteroFL, 1 e 3/4", "HeteroFL"), ("HeteroFL, 1 e 3/4", "LeanFed-c"),
+             ("HeteroFL, 1 e 3/4", "fração mínima 0,5")]
+    return [[f"{a} − {b}", paired(HETERO[a][0], HETERO[b][0])] for a, b in pairs]
 
 
 def build() -> list:
@@ -699,7 +703,10 @@ def build() -> list:
              "Reduzir o modelo em vez dos dados (<b>HeteroFL</b>, submodelos de largura "
              "variável) <b>perde</b> no α = 0,1: 67,7% contra 74,7% do LeanFed-c e 78,0% da "
              "fração 0,5, abaixo dos dois nas 8 seeds. Ele treina mais exemplos (780 mil, "
-             "contra 563 mil), mas só 348 mil passam pelo modelo completo."),
+             "contra 563 mil), mas só 348 mil passam pelo modelo completo, e a perda se "
+             "espalha por todas as classes, sem ficar nas dos clientes de bateria pequena. "
+             "Só com as larguras 1 e 3/4, ele sobe para 72,7% (+5,0, 8 de 8 seeds), mas "
+             "continua abaixo do LeanFed-c (−2,0) e da fração 0,5 (−5,3)."),
         P("<b>Conteúdo</b>"),
         bullets([
             "1. Cenário, políticas e métricas",
@@ -1238,6 +1245,8 @@ def build() -> list:
         ]),
         KeepTogether([
             H2("Resultado com 8 seeds"),
+            P("Nas tabelas, <i>HeteroFL</i> usa as quatro larguras, e <i>HeteroFL, 1 e "
+              "3/4</i> só as duas maiores (subseção \"Só as larguras 1 e 3/4\")."),
             table(
                 ["α = 0,1, BatchNorm recalibrada", "Média das 3 últimas", "Acurácia máxima",
                  "Exemplos em 20 rodadas (no modelo completo)", "Rede / treino (kJ)",
@@ -1247,9 +1256,9 @@ def build() -> list:
             ),
         ]),
         table(
-            ["Diferença pareada", "Pontos [IC 95%], seeds em que o HeteroFL ganha"],
+            ["Diferença pareada", "Pontos [IC 95%], seeds em que o primeiro ganha"],
             hetero_gain_rows(),
-            [2.2, 3.0],
+            [2.6, 3.0],
         ),
         bullets([
             "<b>O HeteroFL perde nas 8 seeds</b>: −6,9 pontos para o LeanFed-c (t pareado, "
@@ -1269,10 +1278,42 @@ def build() -> list:
             "participações deles são com p &lt; 1 (33% com 3/4, 31% com 1/2, 19% com 1/4).",
             "<b>O ganho de \"mais exemplos\" da seção 3 não passa para os submodelos.</b> "
             "Contando só os exemplos no modelo completo, a ordem bate com a da acurácia "
-            "(348, 505 e 563 mil para 67,7%, 74,7% e 78,0%). A hipótese é que, com "
-            "Dirichlet α = 0,1, as classes dos clientes de 500 J chegam só aos canais do "
-            "prefixo, e o resto do modelo completo aprende quase só com os clientes de "
-            "mais bateria. A acurácia por classe ainda não foi medida.",
+            "(348, 505 e 563 mil para 67,7%, 74,7% e 78,0%).",
+        ]),
+        H2("A perda não fica nas classes dos clientes de bateria pequena"),
+        P("A hipótese era que, com Dirichlet α = 0,1, as classes dos clientes de 500 J "
+          "chegam só aos canais do prefixo, e o resto do modelo completo aprende quase só "
+          "com os clientes de mais bateria. A acurácia por classe do modelo final (rodada "
+          "20, BatchNorm recalibrada) a <b>rejeita</b>:"),
+        bullets([
+            "Contra o LeanFed-c, o HeteroFL perde <b>3,8 pontos</b> nas classes com mais da "
+            "metade dos exemplos nos clientes de 500 J, 3,7 nas dos clientes de 1000 J e "
+            "<b>6,4</b> nas dos de 1500 J. Na média, −4,3 por classe, com 51 das 80 "
+            "(10 classes × 8 seeds) abaixo do LeanFed-c.",
+            "Nas seeds 44 e 48, as piores, a perda está nas outras classes (−10,7 e −10,1 "
+            "pontos), e não nas dos clientes de 500 J (−0,6 e +1,4).",
+            "A pior classe cai: 23,5% em média, contra 33,4% no LeanFed-c e 39,9% na "
+            "fração 0,5.",
+        ]),
+        P("A leitura é que misturar larguras na agregação atrapalha o modelo inteiro, e "
+          "não só as classes de quem treina nos submodelos."),
+        H2("Só as larguras 1 e 3/4"),
+        P("Mesma política, com só p = 1 e p = 3/4: o cliente que não cabe nem em 3/4 pula "
+          "a rodada, em vez de treinar em 1/2 ou 1/4."),
+        bullets([
+            "<b>Melhora 5,0 pontos</b> sobre as quatro larguras (72,7%, contra 67,7%), nas "
+            "8 seeds (p = 0,003). Os maiores ganhos são nas seeds 44 e 48 (+8,6 e +9,4), "
+            "as piores com as quatro larguras.",
+            "<b>Continua abaixo</b> do LeanFed-c (−2,0 pontos, ganha em 2 de 8 seeds, "
+            "p = 0,07) e da fração 0,5 (−5,3, só ganha na seed 49, p = 0,001).",
+            "Treina menos que as quatro larguras: 676 mil exemplos em 20 rodadas e 271 "
+            "participações, porque quem não cabe em 3/4 pula. No modelo completo passam 371 "
+            "mil, só 23 mil a mais. São 67% das participações com p = 1 e 33% com 3/4; nos "
+            "clientes de 500 J, 74% com 3/4.",
+            "Com quase os mesmos exemplos no modelo completo, tirar as larguras 1/2 e 1/4 "
+            "vale 5 pontos: os submodelos pequenos atrapalham por si, como a acurácia por "
+            "classe indicava. A ordem por exemplos no modelo completo continua a da "
+            "acurácia (348, 371, 505 e 563 mil).",
         ]),
         note("<b>Diferenças para o HeteroFL do artigo.</b> A largura muda a cada rodada "
              "conforme a bateria, em vez de ser fixa por cliente. A máscara de rótulos do "
@@ -1320,7 +1361,9 @@ def build() -> list:
             "dinâmico, com os ajustes da BatchNorm do artigo, fica 6,9 pontos abaixo do "
             "LeanFed-c e 10,3 abaixo da fração 0,5 no α = 0,1 (8 de 8 seeds), embora treine "
             "mais exemplos com a mesma energia. O que conta é quantos exemplos passam pelo "
-            "modelo completo.",
+            "modelo completo, e os submodelos pequenos atrapalham o modelo inteiro: sem as "
+            "larguras 1/2 e 1/4, ele sobe 5,0 pontos, mas ainda fica 2,0 abaixo do "
+            "LeanFed-c e 5,3 abaixo da fração 0,5.",
             "Para comparar políticas, usar a média das últimas rodadas e várias seeds; a "
             "acurácia de uma rodada e de uma seed é ruído. Três seeds não bastam: no "
             "α = 0,1, as seeds 42 a 44 deram o dobro do ganho do LeanFed-c medido com 8, e "
@@ -1365,10 +1408,8 @@ def build() -> list:
             "fração mínima ganha fazendo o contrário.",
             "Variar o setup (faixa de rede por cliente, baterias, recarga) para ver se a "
             "vantagem se mantém.",
-            "Medir a acurácia por classe do HeteroFL, para testar se as classes dos "
-            "clientes de 500 J ficam só no prefixo do modelo (seeds 44 e 48, as piores).",
-            "Testar se o HeteroFL melhora com só as larguras grandes (1 e 3/4), com a "
-            "largura fixa por cliente do artigo ou com um perfil de energia de celular.",
+            "Testar se o HeteroFL melhora com a largura fixa por cliente do artigo ou com "
+            "um perfil de energia de celular, em que os submodelos economizam mais treino.",
             "Para decidir: um terceiro dataset como o EuroSAT só faz sentido se a "
             "dissertação mirar sensoriamento remoto, porque repete a condição do CIFAR-10 "
             "(10 classes, sem partição natural).",
@@ -1438,6 +1479,7 @@ def build() -> list:
                 ["FEMNIST Dirichlet: LeanFed-c", "88227…", "19479…", "59824…"],
                 ["FEMNIST Dirichlet: fração mínima 0,5", "45006…", "95189…", "12909…"],
                 ["Seção 5: HeteroFL", "15138…", "86454…", "94847…"],
+                ["Seção 5: HeteroFL, 1 e 3/4", "13116…", "40801…", "84638…"],
                 ["Seção 5: LeanFed-c", "11947…", "96813…", "36729…"],
                 ["Seção 5: fração mínima 0,5", "12734…", "10894…", "45556…"],
             ],
@@ -1520,6 +1562,8 @@ def build() -> list:
                 ["FEMNIST Dirichlet: fração mínima 0,5", "19907…", "77329…", "16194…",
                  "15101…", "59879…"],
                 ["Seção 5: HeteroFL", "12242…", "52334…", "12191…", "18365…", "22798…"],
+                ["Seção 5: HeteroFL, 1 e 3/4", "13392…", "57163…", "10030…", "20290…",
+                 "11432…"],
                 ["Seção 5: LeanFed-c", "13599…", "97546…", "75654…", "37169…", "98855…"],
                 ["Seção 5: fração mínima 0,5", "16110…", "61626…", "94603…", "17376…",
                  "17441…"],
@@ -1551,6 +1595,7 @@ def build() -> list:
 # HeteroFL (branch heterofl; o perfil das larguras: profile_energy --widths 0.75,0.5,0.25)
 ./scripts/run_seeds.sh -x "bn-recalibrate=true" \\
     -v heterofl,leanfed-c,leanfed-c-mdf0.5 42 43 44 45 46 47 48 49
+./scripts/run_seeds.sh -x "widths='1.0,0.75'" -v heterofl 42 43 44 45 46 47 48 49   # 1 e 3/4
 # média ± desvio, classes perdidas e ganho pareado (o --ref escolhe o cenário)
 python3 scripts/seeds_summary.py --ref 1977  -o graficos/seeds         # α = 0,1 e variantes
 python3 scripts/seeds_summary.py --ref 5626  -o graficos/seeds-sem-radio
